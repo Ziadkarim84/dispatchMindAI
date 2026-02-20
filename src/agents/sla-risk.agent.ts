@@ -69,7 +69,13 @@ async function fetchPartnerSlaStats(areaId: number): Promise<PartnerSlaStats[]> 
 
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned) as T;
+  const start = cleaned.search(/[{[]/);
+  if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
+  const openChar = cleaned[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  const end = cleaned.lastIndexOf(closeChar);
+  if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
+  return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
 export async function runSlaRiskAgent(areaId: number): Promise<AgentResult<SlaRiskResult[]>> {
@@ -105,7 +111,7 @@ Assess breach probability and risk score for each partner in this area.`;
   logger.debug('[SlaRiskAgent] Calling Claude');
   let raw: string;
   try {
-    raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '[');
+    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
     logger.debug('[SlaRiskAgent] Claude raw response', { raw });
   } catch (err) {
     logger.error('[SlaRiskAgent] Claude call failed', {

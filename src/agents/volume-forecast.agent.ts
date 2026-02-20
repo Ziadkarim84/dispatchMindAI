@@ -33,7 +33,13 @@ async function fetchHubDailyVolume(hubId: number): Promise<HubDailyVolume[]> {
 
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned) as T;
+  const start = cleaned.search(/[{[]/);
+  if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
+  const openChar = cleaned[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  const end = cleaned.lastIndexOf(closeChar);
+  if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
+  return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
 export async function runVolumeForecastAgent(hubId: number): Promise<AgentResult<VolumeForecast>> {
@@ -53,7 +59,7 @@ ${JSON.stringify(history, null, 2)}
 
 Based on this data, forecast the volume for the next 90 days.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '{');
+  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<{
     predicted_daily_avg: number;
     forecast_90d_total: number;

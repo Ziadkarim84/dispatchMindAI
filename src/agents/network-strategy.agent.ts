@@ -120,7 +120,13 @@ async function fetchHubMonthlyCosts(hubId: number) {
 
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned) as T;
+  const start = cleaned.search(/[{[]/);
+  if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
+  const openChar = cleaned[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  const end = cleaned.lastIndexOf(closeChar);
+  if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
+  return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
 export async function runNetworkStrategyAgent(
@@ -153,7 +159,7 @@ ${JSON.stringify(costModels, null, 2)}
 Should this hub be kept open (3PL), closed, or converted to 4PL-only?
 Provide projected 90-day margin after your recommended action.`;
 
-  const raw = await runPrompt(PROFITABILITY_SYSTEM_PROMPT, userPrompt, '{');
+  const raw = await runPrompt(PROFITABILITY_SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<HubProfitabilityResult & { reasoning: string }>(raw);
 
   return {
@@ -198,7 +204,7 @@ ${JSON.stringify(costModels, null, 2)}
 Recommend the optimal operating model (3PL-only, 4PL-only, or Hybrid) for this hub.
 Include projected 90-day profitability and margin uplift vs current state.`;
 
-  const raw = await runPrompt(MODEL_ADVISOR_SYSTEM_PROMPT, userPrompt, '{');
+  const raw = await runPrompt(MODEL_ADVISOR_SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<HubModelRecommendation & { reasoning: string }>(raw);
 
   return {
