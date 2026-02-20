@@ -1,7 +1,9 @@
 """
 config.py — Metabase credentials and question registry
 """
-
+import os
+from dotenv import load_dotenv
+load_dotenv()
 # ─────────────────────────────────────────────────────────────────
 # Connection
 # ─────────────────────────────────────────────────────────────────
@@ -10,11 +12,9 @@ BASE_URL = "https://plmb.shopup.center"
 
 # Session token extracted from your browser cookie
 # ⚠️  This expires — replace it after re-logging into Metabase
-SESSION_TOKEN =""
-
-# Fallback: username/password for re-authentication when session expires
-METABASE_USER = "" # your Metabase username 
-METABASE_PASS = ""   # your Metabase password
+SESSION_TOKEN = os.getenv("SESSION_TOKEN", "")
+METABASE_USER = os.getenv("METABASE_USER", "")
+METABASE_PASS = os.getenv("METABASE_PASS", "")
 
 
 # ─────────────────────────────────────────────────────────────────
