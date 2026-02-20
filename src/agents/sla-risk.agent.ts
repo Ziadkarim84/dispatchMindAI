@@ -1,6 +1,7 @@
 import { AgentResult, PartnerSlaStats, SlaRiskResult } from '@common/types';
 import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
+import { logger } from '@common/utils/logger.util';
 
 const SYSTEM_PROMPT = `You are an SLA risk analyst for RedX, a courier company in Bangladesh.
 You will receive historical delivery performance data per partner for a specific area.
@@ -72,9 +73,22 @@ function parseClaudeJson<T>(raw: string): T {
 }
 
 export async function runSlaRiskAgent(areaId: number): Promise<AgentResult<SlaRiskResult[]>> {
-  const stats = await fetchPartnerSlaStats(areaId);
+  logger.debug('[SlaRiskAgent] Fetching partner SLA stats', { areaId });
+  let stats: PartnerSlaStats[];
+  try {
+    stats = await fetchPartnerSlaStats(areaId);
+    logger.debug('[SlaRiskAgent] DB query complete', { areaId, rowCount: stats.length, rows: stats });
+  } catch (err) {
+    logger.error('[SlaRiskAgent] DB query failed', {
+      areaId,
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw err;
+  }
 
   if (stats.length === 0) {
+    logger.warn('[SlaRiskAgent] No delivery data found for area', { areaId });
     return {
       data: [],
       reasoning: 'No delivery data found for this area.',
@@ -88,8 +102,26 @@ ${JSON.stringify(stats, null, 2)}
 
 Assess breach probability and risk score for each partner in this area.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
-  const parsed = parseClaudeJson<Array<SlaRiskResult & { reasoning: string }>>(raw);
+  logger.debug('[SlaRiskAgent] Calling Claude');
+  let raw: string;
+  try {
+    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+    logger.debug('[SlaRiskAgent] Claude raw response', { raw });
+  } catch (err) {
+    logger.error('[SlaRiskAgent] Claude call failed', {
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw err;
+  }
+
+  let parsed: Array<SlaRiskResult & { reasoning: string }>;
+  try {
+    parsed = parseClaudeJson<Array<SlaRiskResult & { reasoning: string }>>(raw);
+  } catch (err) {
+    logger.error('[SlaRiskAgent] JSON parse failed', { raw, message: (err as Error).message });
+    throw err;
+  }
 
   return {
     data: parsed.map(r => ({
