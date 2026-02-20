@@ -1,8 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '@common/utils/response.util';
+import { sendSuccess, sendCreated } from '@common/utils/response.util';
 import { ValidationError } from '@common/errors/validation.error';
-import { hubParamsSchema } from './hubs.schema';
-import { getHubModelAdvice, getHubProfitability } from './hubs.service';
+import { hubParamsSchema, hubCostBodySchema, hubCostQuerySchema } from './hubs.schema';
+import {
+  getHubModelAdvice,
+  getHubProfitability,
+  getHubCosts,
+  upsertHubCost,
+} from './hubs.service';
 
 export async function hubProfitability(req: Request, res: Response, next: NextFunction) {
   try {
@@ -23,6 +28,40 @@ export async function hubModelAdvice(req: Request, res: Response, next: NextFunc
 
     const result = await getHubModelAdvice(parsed.data.hubId);
     sendSuccess(res, result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getHubCostsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const params = hubParamsSchema.safeParse(req.params);
+    if (!params.success) throw new ValidationError('Invalid hub ID', params.error.flatten());
+
+    const queryParams = hubCostQuerySchema.safeParse(req.query);
+    if (!queryParams.success) throw new ValidationError('Invalid query params', queryParams.error.flatten());
+
+    const costs = await getHubCosts(
+      params.data.hubId,
+      queryParams.data.year,
+      queryParams.data.month
+    );
+    sendSuccess(res, costs);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function upsertHubCostHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const params = hubParamsSchema.safeParse(req.params);
+    if (!params.success) throw new ValidationError('Invalid hub ID', params.error.flatten());
+
+    const body = hubCostBodySchema.safeParse(req.body);
+    if (!body.success) throw new ValidationError('Invalid request body', body.error.flatten());
+
+    const cost = await upsertHubCost({ hub_id: params.data.hubId, ...body.data });
+    sendCreated(res, cost);
   } catch (err) {
     next(err);
   }

@@ -81,34 +81,34 @@ Legend: `[ ]` pending · `[x]` done · `[-]` skipped
 ### Feature 1 — Dispatch Decision
 **Endpoint**: `POST /api/v1/dispatch/recommend`
 
-- [ ] **5.1** `dispatch.schema.ts` — Zod: validate `{ hub_id, area_id, parcel_value, weight, sla_days }`
-- [ ] **5.2** `dispatch.service.ts` — orchestrate Agents 1→2→3→4→6 in sequence
-- [ ] **5.3** Response: `{ type, partner, expected_margin, risk_score, confidence, summary }`
+- [x] **5.1** `dispatch.schema.ts` — Zod: validate `{ hub_id, area_id, parcel_value, weight, sla_days }`
+- [x] **5.2** `dispatch.service.ts` — orchestrate Agents 1→2→3→4→6 in sequence
+- [x] **5.3** Response: `{ type, partner, expected_margin, risk_score, confidence, summary }`
 
 ### Feature 2 — Partner Optimizer
 **Endpoint**: `GET /api/v1/partners/optimize?area_id=&hub_id=`
 
-- [ ] **5.4** `partners.service.ts` — run Agent 3 + Agent 4 for a given area
-- [ ] **5.5** Response: `{ optimal_partner, confidence, backup_partner, sla_risk_score }`
+- [x] **5.4** `partners.service.ts` — run Agent 3 + Agent 4 for a given area
+- [x] **5.5** Response: `{ optimal_partner, confidence, backup_partner, sla_risk_score }`
 
 ### Feature 3 — Hub Profitability Predictor
 **Endpoint**: `GET /api/v1/hubs/:hubId/profitability`
 
-- [ ] **5.6** `hubs.service.ts` — run Agents 1 + 2 + 5 for a hub
-- [ ] **5.7** Response: `{ recommendation, projected_margin_90d, risk_score }`
+- [x] **5.6** `hubs.service.ts` — run Agents 1 + 2 + 5 for a hub
+- [x] **5.7** Response: `{ recommendation, projected_margin_90d, risk_score }`
 
 ### Feature 4 — Hub Model Optimization Advisor
 **Endpoint**: `GET /api/v1/hubs/:hubId/model-advice`
 
-- [ ] **5.8** Extend `hubs.service.ts` — compare 3PL-only vs 4PL-only vs Hybrid via Agent 5
-- [ ] **5.9** Response: `{ recommended_model, margin_uplift, risk_score, confidence, projected_profitability_90d }`
+- [x] **5.8** Extend `hubs.service.ts` — compare 3PL-only vs 4PL-only vs Hybrid via Agent 5
+- [x] **5.9** Response: `{ recommended_model, margin_uplift, risk_score, confidence, projected_profitability_90d }`
 
 ### Feature 5 — Hub Costs CRUD
 **Endpoints**: `POST/GET /api/v1/hubs/:hubId/costs`
 
-- [ ] **5.10** Add `hubs.costs.routes.ts` + controller + service for managing `dm_hub_monthly_costs`
-- [ ] **5.11** `GET /api/v1/hubs/:hubId/costs?year=&month=` — fetch cost breakdown for a hub/month
-- [ ] **5.12** `POST /api/v1/hubs/:hubId/costs` — upsert monthly cost entry
+- [x] **5.10** Add hub costs controller + service for managing `dm_hub_monthly_costs`
+- [x] **5.11** `GET /api/v1/hubs/:hubId/costs?year=&month=` — fetch cost breakdown for a hub/month
+- [x] **5.12** `POST /api/v1/hubs/:hubId/costs` — upsert monthly cost entry
 
 ---
 

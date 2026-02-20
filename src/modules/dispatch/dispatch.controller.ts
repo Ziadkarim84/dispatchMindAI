@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '@common/utils/response.util';
 import { ValidationError } from '@common/errors/validation.error';
 import { dispatchRecommendSchema } from './dispatch.schema';
-import { getDispatchRecommendation } from './dispatch.service';
+import { getDispatchRecommendation, dispatchHistory } from './dispatch.service';
 
 export async function recommendDispatch(req: Request, res: Response, next: NextFunction) {
   try {
@@ -11,6 +11,14 @@ export async function recommendDispatch(req: Request, res: Response, next: NextF
 
     const decision = await getDispatchRecommendation(parsed.data);
     sendSuccess(res, decision);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getDispatchHistory(_req: Request, res: Response, next: NextFunction) {
+  try {
+    sendSuccess(res, dispatchHistory.slice(-50).reverse());
   } catch (err) {
     next(err);
   }
