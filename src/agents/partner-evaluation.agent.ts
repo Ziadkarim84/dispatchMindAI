@@ -1,6 +1,7 @@
 import { AgentResult, CostModelResult, PartnerRanking, SlaRiskResult } from '@common/types';
 import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
+import { logger } from '@common/utils/logger.util';
 
 const SYSTEM_PROMPT = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
 You will receive available partners for an area along with their SLA risk scores and cost comparison data.
@@ -46,7 +47,19 @@ export async function runPartnerEvaluationAgent(
   slaRisks: SlaRiskResult[],
   costModels: CostModelResult[]
 ): Promise<AgentResult<PartnerRanking>> {
-  const availablePartners = await fetchAvailablePartners(areaId);
+  logger.debug('[PartnerEvaluationAgent] Fetching available partners', { areaId });
+  let availablePartners: AvailablePartner[];
+  try {
+    availablePartners = await fetchAvailablePartners(areaId);
+    logger.debug('[PartnerEvaluationAgent] DB query complete', { areaId, partners: availablePartners });
+  } catch (err) {
+    logger.error('[PartnerEvaluationAgent] DB query failed', {
+      areaId,
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw err;
+  }
 
   // Always include Shopup internal (3PL) as an option
   const shopupInternal: AvailablePartner = { partner_id: 0, partner_name: 'Shopup (Internal)', type: '3PL' };
@@ -66,8 +79,26 @@ ${JSON.stringify(costModels, null, 2)}
 Select the optimal partner and a backup partner for this area.
 Prioritize: low SLA risk first, then higher margin improvement.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
-  const parsed = parseClaudeJson<PartnerRanking & { reasoning: string }>(raw);
+  logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: allPartners.length });
+  let raw: string;
+  try {
+    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+    logger.debug('[PartnerEvaluationAgent] Claude raw response', { raw });
+  } catch (err) {
+    logger.error('[PartnerEvaluationAgent] Claude call failed', {
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw err;
+  }
+
+  let parsed: PartnerRanking & { reasoning: string };
+  try {
+    parsed = parseClaudeJson<PartnerRanking & { reasoning: string }>(raw);
+  } catch (err) {
+    logger.error('[PartnerEvaluationAgent] JSON parse failed', { raw, message: (err as Error).message });
+    throw err;
+  }
 
   return {
     data: {
