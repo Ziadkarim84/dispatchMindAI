@@ -111,6 +111,7 @@ const FULL_COPY_TABLES = [
   'sl_zones',
   'sl_areas',
   'sl_area_partners',
+  'sl_area_hub',
   'sl_hub_configs',
 ];
 

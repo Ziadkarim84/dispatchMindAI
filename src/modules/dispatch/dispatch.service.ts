@@ -5,7 +5,24 @@ import { runSlaRiskAgent } from '@agents/sla-risk.agent';
 import { runPartnerEvaluationAgent } from '@agents/partner-evaluation.agent';
 import { runExecutiveSummaryAgent } from '@agents/executive-summary.agent';
 import { logger } from '@common/utils/logger.util';
+import { query } from '@database/connection';
 import { DispatchRecommendInput } from './dispatch.schema';
+
+async function validateHubAreaMapping(hubId: number, areaId: number): Promise<boolean> {
+  const rows = await query<{ STATUS: string }[]>(
+    `SELECT STATUS FROM sl_area_hub WHERE HUB_ID = ? AND AREA_ID = ? LIMIT 1`,
+    [hubId, areaId]
+  );
+  if (rows.length === 0) {
+    logger.warn('Hub-area combination not found in sl_area_hub', { hubId, areaId });
+    return false;
+  }
+  if (rows[0].STATUS !== 'active') {
+    logger.warn('Hub-area combination is not active', { hubId, areaId, status: rows[0].STATUS });
+    return false;
+  }
+  return true;
+}
 
 interface DispatchHistoryEntry extends DispatchDecision {
   hub_id: number;
@@ -21,6 +38,12 @@ export async function getDispatchRecommendation(
   const { hub_id, area_id } = input;
 
   logger.info('Starting dispatch recommendation', { hub_id, area_id });
+
+  // Validate hub-area mapping
+  const isValidMapping = await validateHubAreaMapping(hub_id, area_id);
+  if (!isValidMapping) {
+    logger.warn('Proceeding with dispatch despite inactive/missing hub-area mapping', { hub_id, area_id });
+  }
 
   // Agent 1: Volume Forecast
   logger.debug('Running volume forecast agent', { hub_id });

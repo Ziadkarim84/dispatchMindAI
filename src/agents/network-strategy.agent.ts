@@ -104,6 +104,13 @@ async function fetchHubConfig(hubId: number): Promise<HubConfig | null> {
   return rows[0] ?? null;
 }
 
+async function fetchHubAreas(hubId: number): Promise<{ area_id: number; status: string }[]> {
+  return query<{ area_id: number; status: string }[]>(
+    `SELECT AREA_ID AS area_id, STATUS AS status FROM sl_area_hub WHERE HUB_ID = ? ORDER BY STATUS`,
+    [hubId]
+  );
+}
+
 async function fetchHubMonthlyCosts(hubId: number) {
   const rows = await query<Array<{
     total_fixed_cost: number;
@@ -134,16 +141,22 @@ export async function runNetworkStrategyAgent(
   volumeForecast: VolumeForecast,
   costModels: CostModelResult[]
 ): Promise<AgentResult<HubProfitabilityResult>> {
-  const [aggregate, hubConfig, totalFixedCost] = await Promise.all([
+  const [aggregate, hubConfig, totalFixedCost, hubAreas] = await Promise.all([
     fetchHubAggregate(hubId),
     fetchHubConfig(hubId),
     fetchHubMonthlyCosts(hubId),
+    fetchHubAreas(hubId),
   ]);
+
+  const activeAreas = hubAreas.filter(a => a.status === 'active').length;
 
   const userPrompt = `Hub ID: ${hubId}
 
 Hub configuration:
 ${JSON.stringify(hubConfig, null, 2)}
+
+Areas served by this hub: ${hubAreas.length} total (${activeAreas} active)
+${JSON.stringify(hubAreas, null, 2)}
 
 Last 90 days operational summary:
 ${JSON.stringify(aggregate, null, 2)}
@@ -179,16 +192,22 @@ export async function runHubModelAdvisorAgent(
   volumeForecast: VolumeForecast,
   costModels: CostModelResult[]
 ): Promise<AgentResult<HubModelRecommendation>> {
-  const [aggregate, hubConfig, totalFixedCost] = await Promise.all([
+  const [aggregate, hubConfig, totalFixedCost, hubAreas] = await Promise.all([
     fetchHubAggregate(hubId),
     fetchHubConfig(hubId),
     fetchHubMonthlyCosts(hubId),
+    fetchHubAreas(hubId),
   ]);
+
+  const activeAreas = hubAreas.filter(a => a.status === 'active').length;
 
   const userPrompt = `Hub ID: ${hubId}
 
 Hub configuration:
 ${JSON.stringify(hubConfig, null, 2)}
+
+Areas served by this hub: ${hubAreas.length} total (${activeAreas} active)
+${JSON.stringify(hubAreas, null, 2)}
 
 Last 90 days operational summary:
 ${JSON.stringify(aggregate, null, 2)}
