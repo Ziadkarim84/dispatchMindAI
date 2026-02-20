@@ -24,39 +24,66 @@ export interface Partner {
   STATUS: string;
 }
 
-export interface PartnerZone {
+// sl_area_partners — maps a delivery area to an available 4PL partner
+export interface AreaPartner {
   ID: number;
+  AREA_ID: number;
   PARTNER_ID: number;
-  ZONE_ID: number;
-  STATUS: 'preferred' | 'other';
 }
 
+// dm_hub_monthly_costs — new table, one row per hub per month
+export interface HubMonthlyCost {
+  id: number;
+  hub_id: number;
+  year: number;
+  month: number;
+  rent: number;
+  employee_cost: number;
+  utility_cost: number;
+  maintenance_cost: number;
+  other_cost: number;
+  notes: string | null;
+}
+
+// ─── Query Result Shapes ──────────────────────────────────────────────────────
+
+// Agent 1: volume per hub per day
+// Source: sl_parcels JOIN sl_logistics_parcel_routes (HUB_ROLE = 'delivery')
 export interface HubDailyVolume {
   hub_id: number;
-  hub_name: string;
-  date: string;
+  date: string;         // DATE(sl_parcels.created_at)
   parcel_count: number;
 }
 
-export interface HubMarginSummary {
+// Agent 2: revenue/cost per hub, per parcel status
+// Source: sl_parcels grouped by delivery hub + STATUS
+export interface HubRevenueRow {
   hub_id: number;
-  hub_name: string;
-  avg_shopup_charge: number;
-  avg_partner_charge: number;
-  avg_subsidy: number;
-  avg_cod_charge: number;
-  avg_return_charge: number;
-  avg_contribution_margin: number;
+  status: string;       // sl_parcels.STATUS (e.g. 'delivered', 'returned')
+  parcel_count: number;
+  total_shopup_charge: number;
+  total_cod_charge: number;
+  total_return_charge: number;
+}
+
+// Agent 2: 4PL cost per zone type from sl_fourpl_parcels + sl_fourpl_payments
+export interface FourPlCostRow {
+  zone_type: 'ISD' | 'SUB' | 'OSD'; // Inside Dhaka / Sub Dhaka / Outside Dhaka
+  partner_id: number;
+  partner_name: string;
+  avg_charge: number;
   parcel_count: number;
 }
 
+// Agent 3: SLA performance per partner per area
+// Source: sl_parcels + sl_parcel_logs (delivery timestamp vs SLA target)
 export interface PartnerSlaStats {
   partner_id: number;
   partner_name: string;
-  zone_id: number;
-  total_issues: number;
-  breached_issues: number;
-  breach_rate: number;
+  area_id: number;
+  total_deliveries: number;
+  late_deliveries: number;
+  breach_rate: number;  // late_deliveries / total_deliveries * 100
 }
 
 // ─── Agent I/O Types ──────────────────────────────────────────────────────────
@@ -77,6 +104,9 @@ export interface VolumeForecast {
 export interface CostModelResult {
   hub_id: number;
   scenario: '3PL' | '4PL' | 'Hybrid';
+  avg_revenue_per_parcel: number;
+  avg_cost_per_parcel: number;    // partner charge (4PL) or internal cost (3PL)
+  avg_fixed_cost_per_parcel: number; // dm_hub_monthly_costs / monthly volume
   avg_margin_per_parcel: number;
   margin_delta_vs_current: number;
 }
@@ -84,7 +114,7 @@ export interface CostModelResult {
 export interface SlaRiskResult {
   partner_id: number;
   partner_name: string;
-  zone_id: number;
+  area_id: number;
   breach_probability: number; // 0–100
   risk_score: number;         // 0–100
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
