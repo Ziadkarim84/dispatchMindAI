@@ -53,7 +53,7 @@ ${JSON.stringify(history, null, 2)}
 
 Based on this data, forecast the volume for the next 90 days.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '{');
   const parsed = parseClaudeJson<{
     predicted_daily_avg: number;
     forecast_90d_total: number;

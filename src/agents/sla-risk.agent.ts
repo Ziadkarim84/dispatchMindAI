@@ -105,7 +105,7 @@ Assess breach probability and risk score for each partner in this area.`;
   logger.debug('[SlaRiskAgent] Calling Claude');
   let raw: string;
   try {
-    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+    raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '[');
     logger.debug('[SlaRiskAgent] Claude raw response', { raw });
   } catch (err) {
     logger.error('[SlaRiskAgent] Claude call failed', {
