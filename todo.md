@@ -39,47 +39,40 @@ Legend: `[ ]` pending · `[x]` done · `[-]` skipped
 ### Agent 1 — Volume Forecast (`src/agents/volume-forecast.agent.ts`)
 **Tables**: `sl_parcels` → `sl_logistics_parcel_routes` (HUB_ID where HUB_ROLE = 'delivery')
 
-- [ ] **4.1** Query: daily parcel count per hub for last 90 days
-  ```sql
-  SELECT r.HUB_ID, DATE(p.created_at) AS date, COUNT(*) AS parcel_count
-  FROM sl_parcels p
-  JOIN sl_logistics_parcel_routes r ON r.PARCEL_ID = p.ID AND r.HUB_ROLE = 'delivery'
-  WHERE p.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-  GROUP BY r.HUB_ID, DATE(p.created_at)
-  ```
-- [ ] **4.2** Send historical series to Claude → return predicted daily avg, 90d total, trend (growing/shrinking/stable)
+- [x] **4.1** Query: daily parcel count per hub for last 90 days
+- [x] **4.2** Send historical series to Claude → return predicted daily avg, 90d total, trend (growing/shrinking/stable)
 
 ### Agent 2 — Cost Modeling (`src/agents/cost-modeling.agent.ts`)
 **Tables**: `sl_parcels`, `sl_fourpl_parcels`, `sl_fourpl_payments`, `dm_hub_monthly_costs`
 
-- [ ] **4.3** Query per-hub revenue: avg `SHOPUP_CHARGE + SHOPUP_COD_CHARGE` (delivered) and `SHOPUP_RETURN_CHARGE` (returned) from `sl_parcels` grouped by hub + `sl_parcels.STATUS`
-- [ ] **4.4** Query 4PL cost history: charges per zone type (ISD/SUB/OSD) from `sl_fourpl_parcels` + `sl_fourpl_payments`
-- [ ] **4.5** Query hub fixed costs from `dm_hub_monthly_costs` for current month
-- [ ] **4.6** Send revenue + 4PL cost + fixed costs to Claude → return contribution margin per scenario (3PL / 4PL / Hybrid)
+- [x] **4.3** Query per-hub revenue from `sl_parcels` grouped by hub + `sl_parcels.STATUS`
+- [x] **4.4** Query 4PL cost history from `sl_fourpl_parcels` + `sl_fourpl_payments`
+- [x] **4.5** Query hub fixed costs from `dm_hub_monthly_costs` for current month
+- [x] **4.6** Send revenue + 4PL cost + fixed costs to Claude → return contribution margin per scenario (3PL / 4PL / Hybrid)
 
 ### Agent 3 — SLA Risk (`src/agents/sla-risk.agent.ts`)
 **Tables**: `sl_parcels`, `sl_parcel_logs`, `sl_delivery_partners`, `sl_area_partners`
 
-- [ ] **4.7** Query: per partner per area — total deliveries, late deliveries (delivery timestamp from `sl_parcel_logs` vs SLA target), using `sl_parcels.PARTNER_ID`
-- [ ] **4.8** Send SLA history to Claude → return breach probability (0–100) and risk score per partner
+- [x] **4.7** Query: per partner per area — total deliveries, late deliveries (delivery timestamp from `sl_parcel_logs` vs SLA target), using `sl_parcels.PARTNER_ID`
+- [x] **4.8** Send SLA history to Claude → return breach probability (0–100) and risk score per partner
 
 ### Agent 4 — Partner Evaluation (`src/agents/partner-evaluation.agent.ts`)
 **Tables**: `sl_delivery_partners`, `sl_area_partners`, `sl_shop_configs`, `sl_fourpl_parcels`
 
-- [ ] **4.9** Query: available partners for a given area from `sl_area_partners` joined with `sl_delivery_partners`
-- [ ] **4.10** Feed SLA risk scores (Agent 3) + cost data (Agent 2) + availability to Claude → return ranked partners: optimal choice, confidence score, backup partner
+- [x] **4.9** Query: available partners for a given area from `sl_area_partners` joined with `sl_delivery_partners`
+- [x] **4.10** Feed SLA risk scores (Agent 3) + cost data (Agent 2) + availability to Claude → return ranked partners: optimal choice, confidence score, backup partner
 
 ### Agent 5 — Network Strategy (`src/agents/network-strategy.agent.ts`)
 **Tables**: `sl_hubs`, `sl_hub_configs`, `sl_parcels`, `sl_logistics_parcel_routes`, `dm_hub_monthly_costs`
 
-- [ ] **4.11** Query: per-hub — total volume, revenue, 4PL ratio (`PARTNER_ID IS NOT NULL / total`), avg margin
-- [ ] **4.12** Query: hub fixed + variable costs from `dm_hub_monthly_costs` + per-parcel charges
-- [ ] **4.13** Feed volume forecast + margin + costs to Claude → return open/close/convert recommendation + 90d profitability projection
+- [x] **4.11** Query: per-hub — total volume, revenue, 4PL ratio (`PARTNER_ID IS NOT NULL / total`), avg margin
+- [x] **4.12** Query: hub fixed + variable costs from `dm_hub_monthly_costs` + per-parcel charges
+- [x] **4.13** Feed volume forecast + margin + costs to Claude → return open/close/convert recommendation + 90d profitability projection
 
 ### Agent 6 — Executive Summary (`src/agents/executive-summary.agent.ts`)
 
-- [ ] **4.14** Accept outputs from Agents 1–5
-- [ ] **4.15** Claude generates human-readable decision report for operations managers
+- [x] **4.14** Accept outputs from Agents 1–5
+- [x] **4.15** Claude generates human-readable decision report for operations managers
 
 ---
 
