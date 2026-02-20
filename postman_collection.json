@@ -1,0 +1,162 @@
+{
+  "info": {
+    "name": "DispatchMindAI — RedX Dispatch Optimization",
+    "description": "AI-driven dispatch decision engine for RedX logistics. All endpoints run under /api/v1. Set the `base_url` variable to your server address.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "Verify the server is running."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dispatch",
+      "item": [
+        {
+          "name": "Recommend Dispatch",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/dispatch/recommend",
+            "description": "Core endpoint. Runs all 5 AI agents (Volume Forecast → Cost Modeling → SLA Risk → Partner Evaluation → Executive Summary) and returns a 3PL/4PL dispatch decision with an executive summary.\n\nExpect this to take 10–30 seconds as it calls Claude multiple times.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hub_id\": 620,\n  \"area_id\": 1,\n  \"parcel_value\": 1500,\n  \"weight\": 1.2,\n  \"sla_days\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Dispatch History",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/dispatch/history",
+            "description": "Returns the last 50 dispatch decisions made in the current server session (in-memory, resets on restart)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Partners",
+      "item": [
+        {
+          "name": "Optimize Partner",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/partners/optimize?area_id=1&hub_id=620",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "partners", "optimize"],
+              "query": [
+                {
+                  "key": "area_id",
+                  "value": "1",
+                  "description": "Delivery area ID (from sl_areas)"
+                },
+                {
+                  "key": "hub_id",
+                  "value": "620",
+                  "description": "Hub ID (from sl_hubs)"
+                }
+              ]
+            },
+            "description": "Runs SLA Risk + Partner Evaluation agents for a given area and hub. Returns optimal partner, confidence score, and backup partner."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Hubs",
+      "item": [
+        {
+          "name": "Hub Profitability",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/hubs/620/profitability",
+            "description": "Runs Volume Forecast + Cost Modeling + Network Strategy agents. Returns whether the hub should be kept, closed, or converted to 4PL-only, with a 90-day margin projection."
+          }
+        },
+        {
+          "name": "Hub Model Advice",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/hubs/620/model-advice",
+            "description": "Compares 3PL-only vs 4PL-only vs Hybrid operating models for the hub. Returns recommended model with margin uplift and 90-day profitability projection."
+          }
+        },
+        {
+          "name": "Get Hub Costs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/hubs/620/costs?year=2025&month=2",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "hubs", "620", "costs"],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2025",
+                  "description": "Optional. Filter by year."
+                },
+                {
+                  "key": "month",
+                  "value": "2",
+                  "description": "Optional. Filter by month (1–12)."
+                }
+              ]
+            },
+            "description": "Fetch monthly cost breakdown (rent, employee, utility, maintenance, other) for a hub. Omit year/month to get all historical records."
+          }
+        },
+        {
+          "name": "Upsert Hub Costs",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/hubs/620/costs",
+            "description": "Seed or update the monthly operational costs for a hub. Uses upsert — safe to call multiple times for the same hub/year/month. This data feeds the Cost Modeling and Network Strategy agents.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"year\": 2025,\n  \"month\": 2,\n  \"rent\": 80000,\n  \"employee_cost\": 150000,\n  \"utility_cost\": 15000,\n  \"maintenance_cost\": 10000,\n  \"other_cost\": 5000,\n  \"notes\": \"Feb 2025 costs for Kalabagan Hub\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
