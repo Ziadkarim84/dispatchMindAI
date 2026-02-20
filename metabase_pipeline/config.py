@@ -10,11 +10,11 @@ BASE_URL = "https://plmb.shopup.center"
 
 # Session token extracted from your browser cookie
 # ⚠️  This expires — replace it after re-logging into Metabase
-SESSION_TOKEN = "49496228-8e5f-47b1-a76f-7d959226d67d"
+SESSION_TOKEN =""
 
 # Fallback: username/password for re-authentication when session expires
-METABASE_USER = "sadaf.akhter@shopup.org"   # sadsaf"
-METABASE_PASS = "Pass5word!"   # your Metabase password
+METABASE_USER = "" # your Metabase username 
+METABASE_PASS = ""   # your Metabase password
 
 
 # ─────────────────────────────────────────────────────────────────
