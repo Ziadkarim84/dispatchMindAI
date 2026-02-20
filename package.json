@@ -1,0 +1,48 @@
+{
+  "name": "redx-business-predictor",
+  "version": "1.0.0",
+  "description": "RedX AI Dispatch Optimization System — autonomous decision engine for 3PL/4PL routing, partner selection, and hub profitability prediction",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "redx",
+    "dispatch",
+    "ai",
+    "logistics"
+  ],
+  "author": "RedX Engineering",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "mysql2": "^3.17.4",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.3.0",
+    "@types/uuid": "^10.0.0",
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.13",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:doc-08-7k-docstext.googleusercontent.com)",
+      "Bash(curl:*)"
+    ]
+  }
+}
