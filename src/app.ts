@@ -5,6 +5,9 @@ import { appConfig } from './config/app.config';
 import { requestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { errorHandlerMiddleware } from './common/middleware/error-handler.middleware';
 import { notFoundMiddleware } from './common/middleware/not-found.middleware';
+import { dispatchRouter } from './modules/dispatch/dispatch.routes';
+import { partnersRouter } from './modules/partners/partners.routes';
+import { hubsRouter } from './modules/hubs/hubs.routes';
 
 function createApp(): Application {
   const app = express();
@@ -23,10 +26,10 @@ function createApp(): Application {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // API Routes (will be added per module)
-  // app.use(`${appConfig.apiPrefix}/dispatch`, dispatchRouter);
-  // app.use(`${appConfig.apiPrefix}/partners`, partnerRouter);
-  // app.use(`${appConfig.apiPrefix}/hubs`, hubRouter);
+  // API Routes
+  app.use(`${appConfig.apiPrefix}/dispatch`, dispatchRouter);
+  app.use(`${appConfig.apiPrefix}/partners`, partnersRouter);
+  app.use(`${appConfig.apiPrefix}/hubs`, hubsRouter);
 
   // 404 handler
   app.use(notFoundMiddleware);
