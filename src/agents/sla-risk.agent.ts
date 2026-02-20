@@ -25,45 +25,20 @@ Risk thresholds: breach_probability < 15% → LOW, 15-35% → MEDIUM, > 35% → 
 async function fetchPartnerSlaStats(areaId: number): Promise<PartnerSlaStats[]> {
   return query<PartnerSlaStats[]>(
     `SELECT
-       p.PARTNER_ID                                             AS partner_id,
-       COALESCE(dp.NAME, 'Shopup (Internal)')                  AS partner_name,
-       ? AS area_id,
-       COUNT(*)                                                 AS total_deliveries,
-       SUM(
-         CASE
-           WHEN TIMESTAMPDIFF(DAY, p.created_at, pl.created_at)
-                > COALESCE(h.SLA_TARGET, 3)
-           THEN 1 ELSE 0
-         END
-       )                                                        AS late_deliveries,
-       ROUND(
-         SUM(
-           CASE
-             WHEN TIMESTAMPDIFF(DAY, p.created_at, pl.created_at)
-                  > COALESCE(h.SLA_TARGET, 3)
-             THEN 1 ELSE 0
-           END
-         ) * 100.0 / COUNT(*), 2
-       )                                                        AS breach_rate
-     FROM sl_parcels p
-     JOIN sl_logistics_parcel_routes r
-       ON r.PARCEL_ID = p.ID AND r.HUB_ROLE = 'delivery'
-     JOIN sl_hubs h ON h.ID = r.HUB_ID
-     LEFT JOIN sl_delivery_partners dp ON dp.ID = p.PARTNER_ID
-     JOIN (
-       SELECT PARCEL_ID, MIN(created_at) AS created_at
-       FROM sl_parcel_logs
-       WHERE STATUS IN (
-         'delivered','cash-received','delivery-payment-collected',
-         'delivery-payment-sent','hub-payment-collected'
-       )
-       GROUP BY PARCEL_ID
-     ) pl ON pl.PARCEL_ID = p.ID
-     WHERE p.AREA_ID = ?
-       AND p.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     GROUP BY p.PARTNER_ID, dp.NAME
+       partner_id,
+       partner_name,
+       area_id,
+       SUM(total_deliveries) AS total_deliveries,
+       SUM(late_deliveries)  AS late_deliveries,
+       ROUND(SUM(late_deliveries) * 100.0 / NULLIF(SUM(total_deliveries), 0), 2) AS breach_rate
+     FROM dm_partner_sla_performance
+     WHERE area_id = ?
+       AND (year > YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+         OR (year = YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+             AND month >= MONTH(DATE_SUB(NOW(), INTERVAL 3 MONTH))))
+     GROUP BY partner_id, partner_name, area_id
      HAVING total_deliveries > 0`,
-    [areaId, areaId]
+    [areaId]
   );
 }
 

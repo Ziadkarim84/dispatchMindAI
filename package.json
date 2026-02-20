@@ -13,7 +13,8 @@
     "test:coverage": "jest --coverage",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:sync": "ts-node -r tsconfig-paths/register src/database/sync.ts"
+    "db:sync": "ts-node -r tsconfig-paths/register src/database/sync.ts",
+    "db:aggregate": "ts-node -r tsconfig-paths/register src/database/aggregate.ts"
   },
   "keywords": [
     "redx",

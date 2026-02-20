@@ -16,16 +16,10 @@ Return ONLY a valid JSON object in this exact format (no markdown, no explanatio
 
 async function fetchHubDailyVolume(hubId: number): Promise<HubDailyVolume[]> {
   return query<HubDailyVolume[]>(
-    `SELECT
-       r.HUB_ID          AS hub_id,
-       DATE(p.created_at) AS date,
-       COUNT(*)           AS parcel_count
-     FROM sl_parcels p
-     JOIN sl_logistics_parcel_routes r
-       ON r.PARCEL_ID = p.ID AND r.HUB_ROLE = 'delivery'
-     WHERE p.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-       AND r.HUB_ID = ?
-     GROUP BY r.HUB_ID, DATE(p.created_at)
+    `SELECT hub_id, date, parcel_count
+     FROM dm_hub_daily_volume
+     WHERE hub_id = ?
+       AND date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
      ORDER BY date ASC`,
     [hubId]
   );

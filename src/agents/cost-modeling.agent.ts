@@ -1,4 +1,4 @@
-import { AgentResult, CostModelResult, HubMonthlyCost, HubRevenueRow, VolumeForecast } from '@common/types';
+import { AgentResult, CostModelResult, HubMonthlyCost, VolumeForecast } from '@common/types';
 import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
 
@@ -26,38 +26,39 @@ Return ONLY a valid JSON array (no markdown, no explanation):
   { "scenario": "Hybrid", ... }
 ]`;
 
-const DELIVERED_STATUSES = `'delivered','cash-received','delivery-payment-collected','delivery-payment-sent','hub-payment-collected'`;
-const RETURNED_STATUSES = `'shopup_returned'`;
 
-async function fetchHubRevenue(hubId: number): Promise<HubRevenueRow[]> {
-  return query<HubRevenueRow[]>(
-    `SELECT
-       r.HUB_ID AS hub_id,
-       CASE
-         WHEN p.STATUS IN (${DELIVERED_STATUSES}) THEN 'delivered'
-         WHEN p.STATUS IN (${RETURNED_STATUSES})  THEN 'returned'
-         ELSE 'other'
-       END                         AS status,
-       COUNT(*)                    AS parcel_count,
-       SUM(p.SHOPUP_CHARGE)        AS total_shopup_charge,
-       SUM(p.SHOPUP_COD_CHARGE)    AS total_cod_charge,
-       SUM(p.SHOPUP_RETURN_CHARGE) AS total_return_charge
-     FROM sl_parcels p
-     JOIN sl_logistics_parcel_routes r
-       ON r.PARCEL_ID = p.ID AND r.HUB_ROLE = 'delivery'
-     WHERE r.HUB_ID = ?
-       AND p.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-     GROUP BY r.HUB_ID, status`,
-    [hubId]
-  );
+interface HubMarginSummary {
+  hub_id: number;
+  total_parcels: number;
+  delivered_parcels: number;
+  returned_parcels: number;
+  total_revenue: number;
+  total_4pl_cost: number;
+  total_fixed_cost: number;
+  avg_margin_per_parcel: number;
 }
 
-async function fetchFourPlCosts() {
-  return query<{ parcel_count: number; total_charge: number }[]>(
-    `SELECT COUNT(*) AS parcel_count, SUM(FOURPL_DELIVERY_CHARGE) AS total_charge
-     FROM sl_fourpl_parcels
-     WHERE created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)`
+async function fetchHubMarginSummary(hubId: number): Promise<HubMarginSummary | null> {
+  const rows = await query<HubMarginSummary[]>(
+    `SELECT
+       hub_id,
+       SUM(total_parcels)     AS total_parcels,
+       SUM(delivered_parcels) AS delivered_parcels,
+       SUM(returned_parcels)  AS returned_parcels,
+       SUM(total_revenue)     AS total_revenue,
+       SUM(total_4pl_cost)    AS total_4pl_cost,
+       SUM(total_fixed_cost)  AS total_fixed_cost,
+       ROUND(SUM(total_revenue - total_4pl_cost - total_fixed_cost)
+         / NULLIF(SUM(total_parcels), 0), 2) AS avg_margin_per_parcel
+     FROM dm_hub_contribution_margin
+     WHERE hub_id = ?
+       AND (year > YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+         OR (year = YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+             AND month >= MONTH(DATE_SUB(NOW(), INTERVAL 3 MONTH))))
+     GROUP BY hub_id`,
+    [hubId]
   );
+  return rows[0] ?? null;
 }
 
 async function fetchHubFixedCosts(hubId: number): Promise<HubMonthlyCost | null> {
@@ -85,20 +86,16 @@ export async function runCostModelingAgent(
   hubId: number,
   volumeForecast: VolumeForecast
 ): Promise<AgentResult<CostModelResult[]>> {
-  const [revenueRows, fourPlRows, fixedCosts] = await Promise.all([
-    fetchHubRevenue(hubId),
-    fetchFourPlCosts(),
+  const [marginSummary, fixedCosts] = await Promise.all([
+    fetchHubMarginSummary(hubId),
     fetchHubFixedCosts(hubId),
   ]);
 
   const userPrompt = `Hub ID: ${hubId}
 Monthly parcel volume (forecast): ${volumeForecast.predicted_daily_avg * 30} parcels/month
 
-Revenue breakdown by parcel status (last 90 days):
-${JSON.stringify(revenueRows, null, 2)}
-
-4PL partner cost data (last 90 days):
-${JSON.stringify(fourPlRows, null, 2)}
+Pre-aggregated hub margin summary (last 3 months):
+${marginSummary ? JSON.stringify(marginSummary, null, 2) : 'No aggregated data available — assume 0 revenue and costs'}
 
 Hub fixed monthly costs (BDT):
 ${fixedCosts ? JSON.stringify(fixedCosts, null, 2) : 'No fixed cost data available — assume 0'}
