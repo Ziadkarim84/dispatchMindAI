@@ -82,7 +82,7 @@ Prioritize: low SLA risk first, then higher margin improvement.`;
   logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: allPartners.length });
   let raw: string;
   try {
-    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+    raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '{');
     logger.debug('[PartnerEvaluationAgent] Claude raw response', { raw });
   } catch (err) {
     logger.error('[PartnerEvaluationAgent] Claude call failed', {

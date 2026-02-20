@@ -54,7 +54,7 @@ async function fetchHubRevenue(hubId: number): Promise<HubRevenueRow[]> {
 
 async function fetchFourPlCosts() {
   return query<{ parcel_count: number; total_charge: number }[]>(
-    `SELECT COUNT(*) AS parcel_count, SUM(DELIVERY_CHARGE) AS total_charge
+    `SELECT COUNT(*) AS parcel_count, SUM(FOURPL_DELIVERY_CHARGE) AS total_charge
      FROM sl_fourpl_parcels
      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)`
   );
@@ -101,7 +101,7 @@ Calculate the contribution margin per parcel for 3PL, 4PL, and Hybrid scenarios.
 For Hybrid assume 50% 3PL + 50% 4PL split.
 margin_delta_vs_current should compare each scenario vs the current 3PL baseline.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '[');
   const parsed = parseClaudeJson<Array<{
     scenario: '3PL' | '4PL' | 'Hybrid';
     avg_revenue_per_parcel: number;

@@ -153,7 +153,7 @@ ${JSON.stringify(costModels, null, 2)}
 Should this hub be kept open (3PL), closed, or converted to 4PL-only?
 Provide projected 90-day margin after your recommended action.`;
 
-  const raw = await runPrompt(PROFITABILITY_SYSTEM_PROMPT, userPrompt);
+  const raw = await runPrompt(PROFITABILITY_SYSTEM_PROMPT, userPrompt, '{');
   const parsed = parseClaudeJson<HubProfitabilityResult & { reasoning: string }>(raw);
 
   return {
@@ -198,7 +198,7 @@ ${JSON.stringify(costModels, null, 2)}
 Recommend the optimal operating model (3PL-only, 4PL-only, or Hybrid) for this hub.
 Include projected 90-day profitability and margin uplift vs current state.`;
 
-  const raw = await runPrompt(MODEL_ADVISOR_SYSTEM_PROMPT, userPrompt);
+  const raw = await runPrompt(MODEL_ADVISOR_SYSTEM_PROMPT, userPrompt, '{');
   const parsed = parseClaudeJson<HubModelRecommendation & { reasoning: string }>(raw);
 
   return {
