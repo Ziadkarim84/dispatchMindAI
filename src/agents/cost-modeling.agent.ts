@@ -72,7 +72,13 @@ async function fetchHubFixedCosts(hubId: number): Promise<HubMonthlyCost | null>
 
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned) as T;
+  const start = cleaned.search(/[{[]/);
+  if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
+  const openChar = cleaned[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  const end = cleaned.lastIndexOf(closeChar);
+  if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
+  return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
 export async function runCostModelingAgent(
@@ -101,7 +107,7 @@ Calculate the contribution margin per parcel for 3PL, 4PL, and Hybrid scenarios.
 For Hybrid assume 50% 3PL + 50% 4PL split.
 margin_delta_vs_current should compare each scenario vs the current 3PL baseline.`;
 
-  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt, '[');
+  const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<Array<{
     scenario: '3PL' | '4PL' | 'Hybrid';
     avg_revenue_per_parcel: number;
