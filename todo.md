@@ -28,7 +28,7 @@ Legend: `[ ]` pending · `[x]` done · `[-]` skipped
 
 - [x] **3.1** Spin up local Docker MySQL: `npm run db:up` (auto-creates `dispatch_mind_ai` DB + runs `dm_hub_monthly_costs` migration)
 - [x] **3.2** Fill `STAGE_DB_*` vars in `.env`, then run `npm run db:sync` to copy data from `stage1_shopuplite`
-- [ ] **3.3** Seed `dm_hub_monthly_costs` with initial cost data via `POST /api/v1/hubs/:hubId/costs` (after Phase 5.10–5.12)
+- [x] **3.3** Seed `dm_hub_monthly_costs` with initial cost data via `POST /api/v1/hubs/:hubId/costs` (after Phase 5.10–5.12)
 - [x] **3.4** Update shared types in `src/common/types/index.ts` to reflect confirmed table/column names
 - [x] **3.5** Implement `src/agents/base.agent.ts` — Claude API wrapper with `runPrompt(system, user)` using `claude-sonnet-4-6`
 
@@ -116,15 +116,15 @@ Legend: `[ ]` pending · `[x]` done · `[-]` skipped
 
 > Create only if query performance on live tables is unacceptable for the demo.
 
-- [ ] **6.1** `dm_hub_daily_volume` — pre-aggregated daily parcel counts per hub
-- [ ] **6.2** `dm_partner_sla_performance` — breach rate per partner per area per month
-- [ ] **6.3** `dm_hub_contribution_margin` — avg margin per hub per month
+- [x] **6.1** `dm_hub_daily_volume` — pre-aggregated daily parcel counts per hub
+- [x] **6.2** `dm_partner_sla_performance` — breach rate per partner per area per month
+- [x] **6.3** `dm_hub_contribution_margin` — avg margin per hub per month
 
 ---
 
 ## Phase 7: Polish & Demo Readiness
 
-- [ ] **7.1** `GET /api/v1/dispatch/history` — list recent decisions
+- [x] **7.1** `GET /api/v1/dispatch/history` — list recent decisions
 - [ ] **7.2** Create `requests.http` for demo scenarios (dispatch, partner optimize, hub profitability)
 - [ ] **7.3** Update `CLAUDE.md` with final table references and agent flow
 - [ ] **7.4** End-to-end demo test: parcel in → dispatch decision → executive summary out
