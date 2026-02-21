@@ -36,8 +36,10 @@ export async function getDispatchRecommendation(
   input: DispatchRecommendInput
 ): Promise<DispatchDecision> {
   const { hub_id, area_id, weight, parcel_value, sla_days } = input;
+  // API accepts weight in kg (e.g. 1.2); pricing tiers are calculated in grams
+  const weightGrams = Math.round(weight * 1000);
 
-  logger.info('Starting dispatch recommendation', { hub_id, area_id, weight, parcel_value, sla_days });
+  logger.info('Starting dispatch recommendation', { hub_id, area_id, weightGrams, parcel_value, sla_days });
 
   // Validate hub-area mapping
   const isValidMapping = await validateHubAreaMapping(hub_id, area_id);
@@ -58,12 +60,12 @@ export async function getDispatchRecommendation(
   const slaResult = await runSlaRiskAgent(area_id, sla_days);
 
   // Agent 4: Partner Evaluation — uses actual weight + parcel_value for cost computation
-  logger.debug('Running partner evaluation agent', { area_id, weight, parcel_value });
+  logger.debug('Running partner evaluation agent', { area_id, weightGrams, parcel_value });
   const partnerResult = await runPartnerEvaluationAgent(
     area_id,
     slaResult.data,
     costResult.data,
-    weight,
+    weightGrams,
     parcel_value
   );
 
@@ -91,7 +93,7 @@ export async function getDispatchRecommendation(
   const summaryResult = await runExecutiveSummaryAgent({
     hubId: hub_id,
     areaId: area_id,
-    weightGrams: weight,
+    weightGrams,
     parcelValue: parcel_value,
     slaDays: sla_days,
     volumeForecast: volumeResult.data,

@@ -96,14 +96,14 @@ Form fields (styled dark inputs with labels):
 
 - **Area** — combobox / searchable dropdown. On page load fetch `GET /api/v1/areas` (returns `{ id, name, name_bn }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `#{id}` in dim monospace on the right (e.g. `Dhanmondi - Road 3  #2`). Placeholder: "Search area...". While loading show a skeleton inside the trigger. The selected area's `id` is used as `area_id`.
 
-- **Parcel Value (BDT)** — number input, placeholder "e.g. 1500"
-- **Weight (kg)** — number input with decimal, placeholder "e.g. 1.2"
-- **SLA Days** — number input, default 3, min 1
+- **Parcel Value (BDT)** — number input, placeholder "e.g. 1500". This is the merchant's cash-on-delivery (COD) value used to compute the COD fee per 4PL partner.
+- **Weight (kg)** — number input with decimal, placeholder "e.g. 1.2". The API accepts kg; the backend converts to grams and looks up the exact weight-tier price for each partner (≤0.5kg / ≤1kg / ≤2kg / ≤3kg / ≤4kg / ≤5kg / >5kg).
+- **SLA Days** — number input, default 3, min 1. The merchant's required delivery window. Shorter values tighten the SLA risk thresholds: 1 day uses LOW<5%/MED<15%, 3 days (default) uses LOW<15%/MED<35%.
 
 Use `shadcn/ui` `Command` + `Popover` for both comboboxes. Style dark to match the rest of the app.
 
 Below the form, a small info box:
-> 💡 **High-data combos:** Kalabagan Hub (ISD-1) / Area 1748 · Tejgaon Hub (ISD-2) / Area 1245
+> 💡 **High-data combos:** Tejgaon Hub / Area 91 · Kalabagan Hub / Area 2 · Comilla Hub / Area 1 (OSD — higher charges)
 
 **Submit button:** Full width, electric blue gradient, "Run AI Pipeline →" text. Disabled while loading.
 
@@ -317,12 +317,12 @@ Use this mock data when the API is not available:
 ```json
 // Dispatch result
 {
-  "type": "3PL",
-  "partner": "Shopup (Internal)",
-  "expected_margin": -783.59,
-  "risk_score": 78,
-  "confidence": 42,
-  "summary": "Dispatch Decision Report | Hub 129 | Area 1748\n\nRecommendation: 3PL via Shopup (Internal)\n\nThis recommendation carries low confidence at 42%. With only 13 parcels per day, the current 3PL arrangement is delivering a loss of BDT 783.59 per parcel. SLA risk is HIGH — ShopUp shows a 67% chance of breaching delivery commitments.\n\nNext Step: Review consolidation with a nearby hub or evaluate alternative 4PL partners."
+  "type": "4PL",
+  "partner": "Pathao",
+  "expected_margin": 57.43,
+  "risk_score": 28,
+  "confidence": 74,
+  "summary": "Dispatch Decision Report | Hub 2 | Area 91\n\nRecommendation: 4PL via Pathao\n\nPathao is the optimal partner for this area (ISD zone, 1kg parcel, BDT 1500 value). At BDT 55 total cost (delivery + COD fee), it offers the lowest all-in charge with a LOW SLA risk score of 28% breach probability. The 3-day SLA window is comfortably met. Expected margin: BDT 57.43 per parcel.\n\nNext Step: Confirm dispatch batch with Pathao operations team."
 }
 
 // Partner result
@@ -543,7 +543,7 @@ const [loading, setLoading] = useState(false);
 async function handleSubmit() {
   setLoading(true);
   try {
-    const data = await api.dispatchRecommend({ hub_id: 129, area_id: 1748, parcel_value: 1500, weight: 1.2 });
+    const data = await api.dispatchRecommend({ hub_id: 2, area_id: 91, parcel_value: 1500, weight: 1.0, sla_days: 3 });
     setResult(data);
     toast.success('AI pipeline complete');
   } catch (err) {
