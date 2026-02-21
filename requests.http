@@ -44,13 +44,13 @@ GET {{base_url}}/api/v1/dispatch/history
 
 # ─── Partners ─────────────────────────────────────────────────────────────────
 
-### Optimize Partner — area 1748, hub 129 (has SLA data)
-GET {{base_url}}/api/v1/partners/optimize?area_id=1748&hub_id=129
+### Optimize Partner — area 1748 (hub derived from sl_area_hub)
+GET {{base_url}}/api/v1/partners/optimize?area_id=1748
 
 ###
 
 ### Optimize Partner — area 1 (has ShopUp SLA breach data)
-GET {{base_url}}/api/v1/partners/optimize?area_id=1&hub_id=620
+GET {{base_url}}/api/v1/partners/optimize?area_id=1
 
 # ─── Hubs ─────────────────────────────────────────────────────────────────────
 

@@ -142,7 +142,7 @@ Title: "🤝 Partner Optimizer"
 Subtitle: "AI-powered partner selection · SLA Risk + Evaluation agents"
 
 ### Input
-Two inputs side by side: **Area ID** + **Hub ID**, then an "Optimize →" button.
+One input: **Area ID**, then an "Optimize →" button.
 
 ### Results
 
@@ -456,9 +456,9 @@ export const api = {
   },
 
   /** Run SLA Risk + Partner Evaluation agents for an area */
-  partnersOptimize(areaId: number, hubId: number): Promise<PartnerOptimizeResult> {
+  partnersOptimize(areaId: number): Promise<PartnerOptimizeResult> {
     return apiFetch<PartnerOptimizeResult>(
-      `/api/v1/partners/optimize?area_id=${areaId}&hub_id=${hubId}`
+      `/api/v1/partners/optimize?area_id=${areaId}`
     );
   },
 

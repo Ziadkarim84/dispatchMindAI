@@ -193,10 +193,11 @@ Runs **SLA Risk** + **Partner Evaluation** agents for a given area and hub. Retu
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `area_id` | `integer` | ✅ | Delivery area ID |
-| `hub_id` | `integer` | ✅ | Hub ID (used for cost modeling context) |
+
+The hub is derived automatically from `sl_area_hub` using the `area_id`.
 
 ```
-GET /api/v1/partners/optimize?area_id=1748&hub_id=129
+GET /api/v1/partners/optimize?area_id=1748
 ```
 
 **Response `data`**
