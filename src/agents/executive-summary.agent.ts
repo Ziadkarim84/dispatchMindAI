@@ -4,6 +4,9 @@ import { runPrompt } from './base.agent';
 export interface ExecutiveSummaryInput {
   hubId: number;
   areaId: number;
+  weightGrams: number;
+  parcelValue: number;
+  slaDays: number;
   volumeForecast: VolumeForecast;
   costModels: CostModelResult[];
   slaRisks: SlaRiskResult[];
@@ -27,12 +30,13 @@ Keep it under 150 words. Write in plain English, no jargon. Return plain text (n
 export async function runExecutiveSummaryAgent(
   input: ExecutiveSummaryInput
 ): Promise<AgentResult<string>> {
-  const { hubId, areaId, volumeForecast, costModels, slaRisks, partnerRanking, dispatchType } = input;
+  const { hubId, areaId, weightGrams, parcelValue, slaDays, volumeForecast, costModels, slaRisks, partnerRanking, dispatchType } = input;
 
   const recommendedCost = costModels.find(c => c.scenario === (dispatchType === '4PL' ? '4PL' : '3PL'));
   const topRisk = slaRisks.sort((a, b) => b.risk_score - a.risk_score)[0];
 
   const userPrompt = `Hub: ${hubId} | Area: ${areaId}
+Parcel: ${weightGrams}g, value BDT ${parcelValue}, required SLA: ${slaDays} day${slaDays !== 1 ? 's' : ''}
 Dispatch decision: ${dispatchType}
 Recommended partner: ${partnerRanking.optimal_partner_name} (confidence: ${partnerRanking.confidence}%)
 Backup partner: ${partnerRanking.backup_partner_name ?? 'None'}

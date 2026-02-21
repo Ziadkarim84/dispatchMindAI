@@ -3,9 +3,14 @@ import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
 import { logger } from '@common/utils/logger.util';
 
-const SYSTEM_PROMPT = `You are an SLA risk analyst for RedX, a courier company in Bangladesh.
-You will receive historical delivery performance data per partner for a specific area.
+const BASE_SYSTEM_PROMPT = `You are an SLA risk analyst for RedX, a courier company in Bangladesh.
+You will receive historical delivery performance data per partner for a specific area,
+plus the merchant's required delivery SLA and the corresponding risk thresholds.
 Analyze breach rates and return a risk assessment for each partner.
+
+Important: the historical breach_rate is calculated against the hub's standard SLA_TARGET (typically 3 days).
+If the merchant's required SLA is shorter than 3 days, the true breach probability will be higher than the
+historical rate — adjust upward proportionally. If longer, adjust downward slightly.
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -18,9 +23,7 @@ Return ONLY a valid JSON array (no markdown, no explanation):
     "risk_level": "LOW" | "MEDIUM" | "HIGH",
     "reasoning": "<brief>"
   }
-]
-
-Risk thresholds: breach_probability < 15% → LOW, 15-35% → MEDIUM, > 35% → HIGH.`;
+]`;
 
 async function fetchPartnerSlaStats(areaId: number): Promise<PartnerSlaStats[]> {
   return query<PartnerSlaStats[]>(
@@ -42,6 +45,18 @@ async function fetchPartnerSlaStats(areaId: number): Promise<PartnerSlaStats[]> 
   );
 }
 
+/**
+ * Returns breach-rate thresholds for LOW/MEDIUM/HIGH based on the merchant's
+ * required SLA window. Tighter SLAs mean fewer late deliveries are acceptable.
+ */
+function getRiskThresholds(slaDays: number): { low: number; medium: number } {
+  if (slaDays <= 1) return { low: 5,  medium: 15 }; // same/next-day — very tight
+  if (slaDays === 2) return { low: 10, medium: 25 }; // 2-day
+  if (slaDays <= 3) return { low: 15, medium: 35 }; // standard (default hub SLA)
+  if (slaDays <= 5) return { low: 20, medium: 40 }; // relaxed
+  return              { low: 25, medium: 50 };       // very relaxed (5+ days)
+}
+
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
   const start = cleaned.search(/[{[]/);
@@ -53,7 +68,7 @@ function parseClaudeJson<T>(raw: string): T {
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
-export async function runSlaRiskAgent(areaId: number): Promise<AgentResult<SlaRiskResult[]>> {
+export async function runSlaRiskAgent(areaId: number, slaDays: number = 3): Promise<AgentResult<SlaRiskResult[]>> {
   logger.debug('[SlaRiskAgent] Fetching partner SLA stats', { areaId });
   let stats: PartnerSlaStats[];
   try {
@@ -77,16 +92,23 @@ export async function runSlaRiskAgent(areaId: number): Promise<AgentResult<SlaRi
     };
   }
 
+  const thresholds = getRiskThresholds(slaDays);
+  const systemPrompt = `${BASE_SYSTEM_PROMPT}
+Risk thresholds for this request (merchant SLA = ${slaDays} day${slaDays !== 1 ? 's' : ''}):
+breach_probability < ${thresholds.low}% → LOW, ${thresholds.low}-${thresholds.medium}% → MEDIUM, > ${thresholds.medium}% → HIGH.`;
+
   const userPrompt = `Area ID: ${areaId}
+Merchant required SLA: ${slaDays} day${slaDays !== 1 ? 's' : ''} (hub standard SLA is typically 3 days)
 Delivery performance per partner (last 90 days):
 ${JSON.stringify(stats, null, 2)}
 
-Assess breach probability and risk score for each partner in this area.`;
+Assess breach probability and risk score for each partner in this area.
+Adjust breach_probability upward if the merchant SLA is shorter than the hub's 3-day standard.`;
 
-  logger.debug('[SlaRiskAgent] Calling Claude');
+  logger.debug('[SlaRiskAgent] Calling Claude', { slaDays, thresholds });
   let raw: string;
   try {
-    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
+    raw = await runPrompt(systemPrompt, userPrompt);
     logger.debug('[SlaRiskAgent] Claude raw response', { raw });
   } catch (err) {
     logger.error('[SlaRiskAgent] Claude call failed', {

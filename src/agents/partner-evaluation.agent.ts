@@ -4,15 +4,17 @@ import { runPrompt } from './base.agent';
 import { logger } from '@common/utils/logger.util';
 
 const SYSTEM_PROMPT = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
-You will receive available partners for an area along with their SLA risk scores, actual per-parcel pricing
-(broken down by weight tier for the area's delivery zone), and hub-level cost modeling data.
+You will receive available partners for an area along with their SLA risk scores, the computed
+all-in cost for this specific parcel (delivery charge + COD fee for the actual weight and value),
+and hub-level cost modeling data.
 Select the optimal partner and a backup, balancing cost savings and SLA reliability.
 
-Pricing context:
-- Each 4PL partner has zone-specific pricing (ISD=Dhaka City, SUB=Dhaka Suburbs, OSD=Outside Dhaka)
-- Weight tiers: kg05=≤500g, kg1=≤1kg, kg2=≤2kg, kg3=≤3kg, kg4=≤4kg, kg5=≤5kg
-- The most common weight bucket is ≤1kg (kg1_price) — use it as the primary cost reference
-- "Shopup (Internal)" is always an option as the baseline 3PL; use cost modeling margin data for it
+Cost context:
+- "computed_delivery_charge": the exact charge for this parcel's weight in this zone
+- "computed_cod_fee": COD fee = parcel_value × cod_percentage / 100
+- "computed_total_cost": delivery_charge + cod_fee — this is the true per-parcel 4PL cost
+- "Shopup (Internal)" has no per-parcel fee; use the 3PL margin from cost modeling data instead
+- Prefer partners with lower total_cost AND lower SLA risk
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
@@ -83,6 +85,43 @@ async function fetchAvailablePartners(areaId: number): Promise<AvailablePartner[
   );
 }
 
+interface PartnerWithComputedCost extends AvailablePartner {
+  computed_delivery_charge: number | null;
+  computed_cod_fee: number | null;
+  computed_total_cost: number | null;
+}
+
+/**
+ * Resolves the delivery charge for a specific weight (grams) using the partner's
+ * zone-aware weight-tier pricing. Returns null if the partner has no pricing data.
+ */
+function computePartnerCost(
+  partner: AvailablePartner,
+  weightGrams: number,
+  parcelValue: number
+): { delivery_charge: number; cod_fee: number; total_cost: number } | null {
+  if (partner.kg1_price === null) return null;
+
+  let deliveryCharge: number;
+  if      (weightGrams <= 500)  deliveryCharge = partner.kg05_price!;
+  else if (weightGrams <= 1000) deliveryCharge = partner.kg1_price!;
+  else if (weightGrams <= 2000) deliveryCharge = partner.kg2_price!;
+  else if (weightGrams <= 3000) deliveryCharge = partner.kg3_price!;
+  else if (weightGrams <= 4000) deliveryCharge = partner.kg4_price!;
+  else if (weightGrams <= 5000) deliveryCharge = partner.kg5_price!;
+  else {
+    const extraKg = Math.ceil((weightGrams - 5000) / 1000);
+    deliveryCharge = partner.kg5_price! + extraKg * (partner.extended_per_kg ?? 0);
+  }
+
+  const codFee = Math.round(parcelValue * (partner.cod_percentage ?? 0) / 100);
+  return {
+    delivery_charge: Math.round(deliveryCharge),
+    cod_fee: codFee,
+    total_cost: Math.round(deliveryCharge) + codFee,
+  };
+}
+
 function parseClaudeJson<T>(raw: string): T {
   const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
   const start = cleaned.search(/[{[]/);
@@ -97,9 +136,11 @@ function parseClaudeJson<T>(raw: string): T {
 export async function runPartnerEvaluationAgent(
   areaId: number,
   slaRisks: SlaRiskResult[],
-  costModels: CostModelResult[]
+  costModels: CostModelResult[],
+  weightGrams: number,
+  parcelValue: number
 ): Promise<AgentResult<PartnerRanking>> {
-  logger.debug('[PartnerEvaluationAgent] Fetching available partners with pricing', { areaId });
+  logger.debug('[PartnerEvaluationAgent] Fetching available partners with pricing', { areaId, weightGrams, parcelValue });
   let availablePartners: AvailablePartner[];
   try {
     availablePartners = await fetchAvailablePartners(areaId);
@@ -113,31 +154,34 @@ export async function runPartnerEvaluationAgent(
     throw err;
   }
 
-  // Always include Shopup internal (3PL) as baseline — no partner pricing row
-  const shopupInternal: AvailablePartner = {
-    partner_id: 0,
-    partner_name: 'Shopup (Internal)',
-    type: '3PL',
-    zone_name: null,
-    kg05_price: null, kg1_price: null, kg2_price: null,
-    kg3_price: null, kg4_price: null, kg5_price: null,
-    extended_per_kg: null, cod_percentage: null, return_charge: null,
-  };
-  const allPartners = [shopupInternal, ...availablePartners];
+  // Compute actual per-parcel cost for this specific weight + parcel value
+  const fourplPartnersWithCost: PartnerWithComputedCost[] = availablePartners.map(p => {
+    const cost = computePartnerCost(p, weightGrams, parcelValue);
+    return {
+      ...p,
+      // Drop raw weight-tier columns — replaced by the computed values below
+      kg05_price: undefined as any, kg1_price: undefined as any, kg2_price: undefined as any,
+      kg3_price: undefined as any,  kg4_price: undefined as any, kg5_price: undefined as any,
+      extended_per_kg: undefined as any,
+      computed_delivery_charge: cost?.delivery_charge ?? null,
+      computed_cod_fee: cost?.cod_fee ?? null,
+      computed_total_cost: cost?.total_cost ?? null,
+    };
+  });
 
-  // Separate 3PL baseline from 4PL options for clearer prompt structure
-  const fourplPartners = availablePartners.filter(p => p.kg1_price !== null);
-  const partnersWithoutPricing = availablePartners.filter(p => p.kg1_price === null);
+  const partnersWithCost    = fourplPartnersWithCost.filter(p => p.computed_total_cost !== null);
+  const partnersWithoutCost = fourplPartnersWithCost.filter(p => p.computed_total_cost === null);
 
   const userPrompt = `Area ID: ${areaId}
+Parcel: ${weightGrams}g, value BDT ${parcelValue}
 
-Available delivery partners with zone-based pricing:
-${JSON.stringify(fourplPartners, null, 2)}
+4PL partners — computed cost for this parcel (delivery charge + COD fee):
+${JSON.stringify(partnersWithCost, null, 2)}
 
-Partners available but without pricing data (use SLA and cost models only):
-${JSON.stringify(partnersWithoutPricing, null, 2)}
+Partners without pricing data (use SLA risk scores only):
+${JSON.stringify(partnersWithoutCost, null, 2)}
 
-Shopup (Internal) 3PL is always available as baseline.
+Shopup (Internal) 3PL is always available as baseline — no per-parcel 4PL fee applies.
 
 SLA risk assessment per partner (last 90 days):
 ${JSON.stringify(slaRisks, null, 2)}
@@ -146,10 +190,10 @@ Hub-level cost modeling (3PL vs 4PL vs Hybrid margin scenarios):
 ${JSON.stringify(costModels, null, 2)}
 
 Select the optimal partner and a backup for this area.
-Prioritize: low SLA risk first, then lowest cost (use kg1_price as the primary cost reference).
+Prioritize: low SLA risk first, then lowest computed_total_cost.
 If a partner has better SLA and lower cost than others, strongly prefer them.`;
 
-  logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: allPartners.length });
+  logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: availablePartners.length + 1 });
   let raw: string;
   try {
     raw = await runPrompt(SYSTEM_PROMPT, userPrompt);

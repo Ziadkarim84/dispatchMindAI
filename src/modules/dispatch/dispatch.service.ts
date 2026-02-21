@@ -35,9 +35,9 @@ export const dispatchHistory: DispatchHistoryEntry[] = [];
 export async function getDispatchRecommendation(
   input: DispatchRecommendInput
 ): Promise<DispatchDecision> {
-  const { hub_id, area_id } = input;
+  const { hub_id, area_id, weight, parcel_value, sla_days } = input;
 
-  logger.info('Starting dispatch recommendation', { hub_id, area_id });
+  logger.info('Starting dispatch recommendation', { hub_id, area_id, weight, parcel_value, sla_days });
 
   // Validate hub-area mapping
   const isValidMapping = await validateHubAreaMapping(hub_id, area_id);
@@ -53,16 +53,18 @@ export async function getDispatchRecommendation(
   logger.debug('Running cost modeling agent', { hub_id });
   const costResult = await runCostModelingAgent(hub_id, volumeResult.data);
 
-  // Agent 3: SLA Risk (runs in parallel with cost modeling output being ready)
-  logger.debug('Running SLA risk agent', { area_id });
-  const slaResult = await runSlaRiskAgent(area_id);
+  // Agent 3: SLA Risk — uses merchant's sla_days to calibrate risk thresholds
+  logger.debug('Running SLA risk agent', { area_id, sla_days });
+  const slaResult = await runSlaRiskAgent(area_id, sla_days);
 
-  // Agent 4: Partner Evaluation (needs SLA + cost results)
-  logger.debug('Running partner evaluation agent', { area_id });
+  // Agent 4: Partner Evaluation — uses actual weight + parcel_value for cost computation
+  logger.debug('Running partner evaluation agent', { area_id, weight, parcel_value });
   const partnerResult = await runPartnerEvaluationAgent(
     area_id,
     slaResult.data,
-    costResult.data
+    costResult.data,
+    weight,
+    parcel_value
   );
 
   // Determine dispatch type: prefer 4PL if margin uplift exists and SLA risk is acceptable
@@ -89,6 +91,9 @@ export async function getDispatchRecommendation(
   const summaryResult = await runExecutiveSummaryAgent({
     hubId: hub_id,
     areaId: area_id,
+    weightGrams: weight,
+    parcelValue: parcel_value,
+    slaDays: sla_days,
     volumeForecast: volumeResult.data,
     costModels: costResult.data,
     slaRisks: slaResult.data,

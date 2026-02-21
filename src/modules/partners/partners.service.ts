@@ -32,7 +32,7 @@ export async function getOptimalPartner(input: PartnerOptimizeInput): Promise<Pa
     logger.debug('Running volume forecast + SLA risk agents in parallel', { hub_id, area_id });
     [volumeResult, slaResult] = await Promise.all([
       runVolumeForecastAgent(hub_id),
-      runSlaRiskAgent(area_id),
+      runSlaRiskAgent(area_id, 3), // default 3-day SLA for general partner optimization
     ]);
     logger.debug('Volume forecast complete', { hub_id, forecast: volumeResult.data });
     logger.debug('SLA risk complete', { area_id, risks: slaResult.data });
@@ -63,10 +63,13 @@ export async function getOptimalPartner(input: PartnerOptimizeInput): Promise<Pa
   let partnerResult;
   try {
     logger.debug('Running partner evaluation agent', { area_id });
+    // No specific parcel — use representative defaults (1kg, BDT 1000, standard 3-day SLA)
     partnerResult = await runPartnerEvaluationAgent(
       area_id,
       slaResult.data,
-      costResult.data
+      costResult.data,
+      1000,   // weight: 1000g (most common tier)
+      1000    // parcel_value: BDT 1000 (typical BD e-commerce order)
     );
     logger.debug('Partner evaluation complete', { area_id, ranking: partnerResult.data });
   } catch (err) {
