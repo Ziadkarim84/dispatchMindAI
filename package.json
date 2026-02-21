@@ -14,7 +14,8 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:sync": "ts-node -r tsconfig-paths/register src/database/sync.ts",
-    "db:aggregate": "ts-node -r tsconfig-paths/register src/database/aggregate.ts"
+    "db:aggregate": "ts-node -r tsconfig-paths/register src/database/aggregate.ts",
+    "db:seed-demo": "ts-node -r tsconfig-paths/register src/database/seed-demo.ts"
   },
   "keywords": [
     "redx",
