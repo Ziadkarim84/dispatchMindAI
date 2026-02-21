@@ -91,14 +91,19 @@ Title: "🤖 AI Dispatch Recommender"
 Subtitle: "5 AI agents · ~20 seconds · Claude Sonnet 4.6"
 
 Form fields (styled dark inputs with labels):
-- **Hub ID** — number input, placeholder "e.g. 129"
-- **Area ID** — number input, placeholder "e.g. 1748"
+
+- **Hub** — combobox / searchable dropdown. On page load fetch `GET /api/v1/hubs` (returns `{ id, name, operational_code }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `{operational_code}` in dim monospace on the right (e.g. `Kalabagan Hub  ISD-1`). Placeholder: "Search hub...". While loading show a skeleton inside the trigger. The selected hub's `id` is used as `hub_id`.
+
+- **Area** — combobox / searchable dropdown. On page load fetch `GET /api/v1/areas` (returns `{ id, name, name_bn }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `#{id}` in dim monospace on the right (e.g. `Dhanmondi - Road 3  #2`). Placeholder: "Search area...". While loading show a skeleton inside the trigger. The selected area's `id` is used as `area_id`.
+
 - **Parcel Value (BDT)** — number input, placeholder "e.g. 1500"
 - **Weight (kg)** — number input with decimal, placeholder "e.g. 1.2"
 - **SLA Days** — number input, default 3, min 1
 
+Use `shadcn/ui` `Command` + `Popover` for both comboboxes. Style dark to match the rest of the app.
+
 Below the form, a small info box:
-> 💡 **High-data combos:** Hub 129 / Area 1748 (1,022 parcels) · Hub 136 / Area 1245 (652 parcels)
+> 💡 **High-data combos:** Kalabagan Hub (ISD-1) / Area 1748 · Tejgaon Hub (ISD-2) / Area 1245
 
 **Submit button:** Full width, electric blue gradient, "Run AI Pipeline →" text. Disabled while loading.
 
