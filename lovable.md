@@ -142,7 +142,18 @@ Title: "🤝 Partner Optimizer"
 Subtitle: "AI-powered partner selection · SLA Risk + Evaluation agents"
 
 ### Input
-One input: **Area ID**, then an "Optimize →" button.
+
+On page load, fetch all areas from `GET /api/v1/areas` (returns `{ id, name, name_bn }[]`).
+
+Replace the Area ID text input with a **combobox / searchable dropdown**:
+- Search box at the top that filters by name using **fuzzy search** (use `fuse.js`)
+- Each option shows: `{name}` with `#{id}` in dim monospace on the right (e.g. `Dhanmondi - Road 3  #2`)
+- Placeholder: "Search area..."
+- While areas are loading show a skeleton/spinner inside the dropdown trigger
+- If the areas API fails, fall back to a plain number input with an error toast
+- Style dark to match the rest of the app — use `shadcn/ui` `Command` + `Popover` for the combobox pattern
+
+Then an **"Optimize →"** button. The selected area's `id` (integer) is passed as `area_id` to the optimize API.
 
 ### Results
 
@@ -250,12 +261,13 @@ Use `fetch` or `axios` for all calls. Show a toast notification on API errors.
 
 **Endpoints used:**
 ```
-GET  /health                                    → API status check
-POST /api/v1/dispatch/recommend                 → Dispatch page
-GET  /api/v1/dispatch/history                   → Dashboard + History page
-GET  /api/v1/partners/optimize?area_id=&hub_id= → Partners page
-GET  /api/v1/hubs/:hubId/profitability          → Hubs page
-GET  /api/v1/hubs/:hubId/model-advice           → Hubs page
+GET  /health                                → API status check
+POST /api/v1/dispatch/recommend             → Dispatch page
+GET  /api/v1/dispatch/history               → Dashboard + History page
+GET  /api/v1/areas                          → Area dropdown (Partners page on load)
+GET  /api/v1/partners/optimize?area_id=     → Partners page (hub derived server-side)
+GET  /api/v1/hubs/:hubId/profitability      → Hubs page
+GET  /api/v1/hubs/:hubId/model-advice       → Hubs page
 ```
 
 **Loading states:** Every API call must show a skeleton loader or progress indicator. Never show a blank panel.
@@ -367,6 +379,12 @@ export interface HealthResponse {
   timestamp: string;
 }
 
+export interface Area {
+  id: number;
+  name: string;
+  name_bn: string | null;
+}
+
 export interface DispatchResult {
   type: '3PL' | '4PL';
   partner: string;
@@ -431,6 +449,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 
 export const api = {
+  /** Fetch all active areas with hub mappings — for the area dropdown */
+  listAreas(): Promise<Area[]> {
+    return apiFetch<Area[]>('/api/v1/areas');
+  },
+
   /** Check if the backend is reachable */
   health(): Promise<HealthResponse> {
     return fetch(`${BASE_URL}/health`).then(r => r.json());
