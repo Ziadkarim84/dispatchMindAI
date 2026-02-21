@@ -8,6 +8,7 @@ import { notFoundMiddleware } from './common/middleware/not-found.middleware';
 import { dispatchRouter } from './modules/dispatch/dispatch.routes';
 import { partnersRouter } from './modules/partners/partners.routes';
 import { hubsRouter } from './modules/hubs/hubs.routes';
+import { areasRouter } from './modules/areas/areas.routes';
 
 function createApp(): Application {
   const app = express();
@@ -27,6 +28,7 @@ function createApp(): Application {
   });
 
   // API Routes
+  app.use(`${appConfig.apiPrefix}/areas`, areasRouter);
   app.use(`${appConfig.apiPrefix}/dispatch`, dispatchRouter);
   app.use(`${appConfig.apiPrefix}/partners`, partnersRouter);
   app.use(`${appConfig.apiPrefix}/hubs`, hubsRouter);
