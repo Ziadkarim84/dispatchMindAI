@@ -72,7 +72,7 @@ async function populatePartnerSlaPerformance(conn: mysql.Connection): Promise<vo
       COUNT(*)                                                    AS total_deliveries,
       SUM(
         CASE
-          WHEN DATEDIFF(DATE(pl.created_at), DATE(p.created_at))
+          WHEN DATEDIFF(DATE(dlv.delivered_at), DATE(rfs.received_at))
                > COALESCE(h.SLA_TARGET, 3)
           THEN 1 ELSE 0
         END
@@ -80,7 +80,7 @@ async function populatePartnerSlaPerformance(conn: mysql.Connection): Promise<vo
       ROUND(
         SUM(
           CASE
-            WHEN DATEDIFF(DATE(pl.created_at), DATE(p.created_at))
+            WHEN DATEDIFF(DATE(dlv.delivered_at), DATE(rfs.received_at))
                  > COALESCE(h.SLA_TARGET, 3)
             THEN 1 ELSE 0
           END
@@ -92,11 +92,17 @@ async function populatePartnerSlaPerformance(conn: mysql.Connection): Promise<vo
     JOIN sl_hubs h ON h.ID = r.HUB_ID
     LEFT JOIN sl_delivery_partners dp ON dp.ID = p.PARTNER_ID
     JOIN (
-      SELECT PARCEL_ID, MIN(created_at) AS created_at
+      SELECT PARCEL_ID, MIN(created_at) AS received_at
+      FROM sl_parcel_logs
+      WHERE ACTION = 'received-from-seller'
+      GROUP BY PARCEL_ID
+    ) rfs ON rfs.PARCEL_ID = p.ID
+    JOIN (
+      SELECT PARCEL_ID, MIN(created_at) AS delivered_at
       FROM sl_parcel_logs
       WHERE STATUS IN (${DELIVERED_STATUSES})
       GROUP BY PARCEL_ID
-    ) pl ON pl.PARCEL_ID = p.ID
+    ) dlv ON dlv.PARCEL_ID = p.ID
     WHERE p.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
     GROUP BY p.PARTNER_ID, dp.NAME, p.AREA_ID, YEAR(p.created_at), MONTH(p.created_at)
     HAVING total_deliveries > 0
