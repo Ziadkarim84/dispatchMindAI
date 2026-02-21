@@ -144,13 +144,7 @@ async function populateHubContributionMargin(conn: mysql.Connection): Promise<vo
           ELSE 0
         END
       )                                                            AS total_revenue,
-      COALESCE((
-        SELECT SUM(fp.FOURPL_DELIVERY_CHARGE)
-        FROM sl_fourpl_parcels fp
-        WHERE fp.HUB_ID            = r.HUB_ID
-          AND YEAR(fp.CREATED_AT)  = YEAR(p.created_at)
-          AND MONTH(fp.CREATED_AT) = MONTH(p.created_at)
-      ), 0)                                                        AS total_4pl_cost,
+      COALESCE(SUM(fp.FOURPL_DELIVERY_CHARGE), 0)                 AS total_4pl_cost,
       COALESCE((
         SELECT rent + employee_cost + utility_cost + maintenance_cost + other_cost
         FROM dm_hub_monthly_costs
@@ -163,6 +157,7 @@ async function populateHubContributionMargin(conn: mysql.Connection): Promise<vo
     FROM sl_parcels p
     JOIN sl_logistics_parcel_routes r
       ON r.PARCEL_ID = p.ID AND r.HUB_ROLE = 'delivery'
+    LEFT JOIN sl_fourpl_parcels fp ON fp.TRACKING_ID = p.TRACKING_ID
     WHERE p.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
     GROUP BY r.HUB_ID, YEAR(p.created_at), MONTH(p.created_at)
     ON DUPLICATE KEY UPDATE

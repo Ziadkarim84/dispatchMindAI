@@ -113,6 +113,7 @@ const FULL_COPY_TABLES = [
   'sl_area_partners',
   'sl_area_hub',
   'sl_hub_configs',
+  'sl_shop_zones',
 ];
 
 // Partial copy — last 90 days
