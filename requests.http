@@ -1,0 +1,90 @@
+### DispatchMindAI — Demo Request Scenarios
+### Base URL: http://localhost:3000
+### Real data: hub_id=129 (high-volume hub, 1022 parcels/90d), area_id=1748
+
+@base_url = http://localhost:3000
+
+# ─── Health ───────────────────────────────────────────────────────────────────
+
+### Health Check
+GET {{base_url}}/health
+
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
+
+### Recommend Dispatch — high-volume hub/area (has real data)
+POST {{base_url}}/api/v1/dispatch/recommend
+Content-Type: application/json
+
+{
+  "hub_id": 129,
+  "area_id": 1748,
+  "parcel_value": 1500,
+  "weight": 1.2,
+  "sla_days": 3
+}
+
+###
+
+### Recommend Dispatch — another active hub/area combo
+POST {{base_url}}/api/v1/dispatch/recommend
+Content-Type: application/json
+
+{
+  "hub_id": 136,
+  "area_id": 1245,
+  "parcel_value": 2500,
+  "weight": 2.0,
+  "sla_days": 2
+}
+
+###
+
+### Dispatch History — last 50 decisions
+GET {{base_url}}/api/v1/dispatch/history
+
+# ─── Partners ─────────────────────────────────────────────────────────────────
+
+### Optimize Partner — area 1748, hub 129 (has SLA data)
+GET {{base_url}}/api/v1/partners/optimize?area_id=1748&hub_id=129
+
+###
+
+### Optimize Partner — area 1 (has ShopUp SLA breach data)
+GET {{base_url}}/api/v1/partners/optimize?area_id=1&hub_id=620
+
+# ─── Hubs ─────────────────────────────────────────────────────────────────────
+
+### Hub Profitability — hub 129 (active hub with real volume)
+GET {{base_url}}/api/v1/hubs/129/profitability
+
+###
+
+### Hub Model Advice — hub 129
+GET {{base_url}}/api/v1/hubs/129/model-advice
+
+###
+
+### Hub Profitability — hub 136 (second highest volume)
+GET {{base_url}}/api/v1/hubs/136/profitability
+
+###
+
+### Get Hub Costs — hub 129, Feb 2026
+GET {{base_url}}/api/v1/hubs/129/costs?year=2026&month=2
+
+###
+
+### Upsert Hub Costs — hub 129, Feb 2026
+POST {{base_url}}/api/v1/hubs/129/costs
+Content-Type: application/json
+
+{
+  "year": 2026,
+  "month": 2,
+  "rent": 80000,
+  "employee_cost": 150000,
+  "utility_cost": 15000,
+  "maintenance_cost": 10000,
+  "other_cost": 5000,
+  "notes": "Feb 2026 costs — hub 129"
+}

@@ -125,6 +125,6 @@ Legend: `[ ]` pending · `[x]` done · `[-]` skipped
 ## Phase 7: Polish & Demo Readiness
 
 - [x] **7.1** `GET /api/v1/dispatch/history` — list recent decisions
-- [ ] **7.2** Create `requests.http` for demo scenarios (dispatch, partner optimize, hub profitability)
-- [ ] **7.3** Update `CLAUDE.md` with final table references and agent flow
-- [ ] **7.4** End-to-end demo test: parcel in → dispatch decision → executive summary out
+- [x] **7.2** Create `requests.http` for demo scenarios (dispatch, partner optimize, hub profitability)
+- [x] **7.3** Update `CLAUDE.md` with final table references and agent flow
+- [x] **7.4** End-to-end demo test: parcel in → dispatch decision → executive summary out
