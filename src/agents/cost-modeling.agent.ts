@@ -7,7 +7,7 @@ You will receive per-hub revenue data, 4PL partner costs, and fixed monthly hub 
 Calculate contribution margins for three dispatch scenarios: 3PL (internal RedX), 4PL (external partner), and Hybrid.
 
 Margin formula per parcel:
-- Revenue  = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered) OR SHOPUP_RETURN_CHARGE (returned)
+- Revenue  = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered statuses) OR SHOPUP_RETURN_CHARGE (shopup-returning / shopup-returned)
 - 4PL Cost = average charge paid to external partner per parcel
 - Fixed Cost per parcel = monthly fixed costs / monthly parcel volume
 

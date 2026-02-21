@@ -13,7 +13,7 @@ import mysql from 'mysql2/promise';
 import 'dotenv/config';
 
 const DELIVERED_STATUSES = `'delivered','cash-received','delivery-payment-collected','delivery-payment-sent','hub-payment-collected'`;
-const RETURNED_STATUSES = `'shopup_returned'`;
+const RETURNED_STATUSES = `'shopup-returning','shopup-returned'`;
 
 async function getConnection(): Promise<mysql.Connection> {
   const conn = await mysql.createConnection({

@@ -60,7 +60,7 @@ async function fetchHubAggregate(hubId: number): Promise<HubAggregate | null> {
              'delivered','cash-received','delivery-payment-collected',
              'delivery-payment-sent','hub-payment-collected'
            ) THEN COALESCE(p.SHOPUP_CHARGE, 0) + COALESCE(p.SHOPUP_COD_CHARGE, 0)
-           WHEN p.STATUS = 'shopup_returned'
+           WHEN p.STATUS IN ('shopup-returning', 'shopup-returned')
              THEN COALESCE(p.SHOPUP_RETURN_CHARGE, 0)
            ELSE 0
          END
