@@ -145,6 +145,24 @@ export interface HubModelRecommendation {
   projected_profitability_90d: number;
 }
 
+// sl_fourpl_partner_pricing — per-zone, per-weight-tier pricing for 4PL partners
+// zone_id: 1=ISD (Dhaka City), 2=SUB (Dhaka Suburbs), 3=OSD (Outside Dhaka)
+export interface FourplPartnerPricing {
+  partner_id: number;
+  partner_name: string;
+  zone_id: number;
+  zone_name: string;
+  kg05_price: number;
+  kg1_price: number;
+  kg2_price: number;
+  kg3_price: number;
+  kg4_price: number;
+  kg5_price: number;
+  extended_per_kg: number;
+  cod_percentage: number;
+  return_charge: number;
+}
+
 // ─── API Response Types ───────────────────────────────────────────────────────
 
 export interface DispatchDecision {
