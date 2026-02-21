@@ -6,7 +6,19 @@ import { runPartnerEvaluationAgent } from '@agents/partner-evaluation.agent';
 import { runExecutiveSummaryAgent } from '@agents/executive-summary.agent';
 import { logger } from '@common/utils/logger.util';
 import { query } from '@database/connection';
+import { NotFoundError } from '@common/errors/not-found.error';
 import { DispatchRecommendInput } from './dispatch.schema';
+
+async function deriveHubId(areaId: number): Promise<number> {
+  const rows = await query<{ HUB_ID: number }[]>(
+    `SELECT HUB_ID FROM sl_area_hub WHERE AREA_ID = ? AND STATUS = 'active' LIMIT 1`,
+    [areaId]
+  );
+  if (rows.length === 0) {
+    throw new NotFoundError('Hub', `area_id=${areaId} (no active hub mapping found)`);
+  }
+  return rows[0].HUB_ID;
+}
 
 async function validateHubAreaMapping(hubId: number, areaId: number): Promise<boolean> {
   const rows = await query<{ STATUS: string }[]>(
@@ -39,21 +51,26 @@ export async function getDispatchRecommendation(
   // API accepts weight in kg (e.g. 1.2); pricing tiers are calculated in grams
   const weightGrams = Math.round(weight * 1000);
 
-  logger.info('Starting dispatch recommendation', { hub_id, area_id, weightGrams, parcel_value, sla_days });
+  // Resolve hub_id: use provided value or derive from area_id
+  const resolvedHubId = hub_id ?? await deriveHubId(area_id);
 
-  // Validate hub-area mapping
-  const isValidMapping = await validateHubAreaMapping(hub_id, area_id);
+  logger.info('Starting dispatch recommendation', { hub_id: resolvedHubId, area_id, weightGrams, parcel_value, sla_days });
+
+  // Validate hub-area mapping (only if hub_id was explicitly provided)
+  const isValidMapping = hub_id != null
+    ? await validateHubAreaMapping(hub_id, area_id)
+    : true;
   if (!isValidMapping) {
-    logger.warn('Proceeding with dispatch despite inactive/missing hub-area mapping', { hub_id, area_id });
+    logger.warn('Proceeding with dispatch despite inactive/missing hub-area mapping', { hub_id: resolvedHubId, area_id });
   }
 
   // Agent 1: Volume Forecast
-  logger.debug('Running volume forecast agent', { hub_id });
-  const volumeResult = await runVolumeForecastAgent(hub_id);
+  logger.debug('Running volume forecast agent', { hub_id: resolvedHubId });
+  const volumeResult = await runVolumeForecastAgent(resolvedHubId);
 
   // Agent 2: Cost Modeling (uses volume forecast)
-  logger.debug('Running cost modeling agent', { hub_id });
-  const costResult = await runCostModelingAgent(hub_id, volumeResult.data);
+  logger.debug('Running cost modeling agent', { hub_id: resolvedHubId });
+  const costResult = await runCostModelingAgent(resolvedHubId, volumeResult.data);
 
   // Agent 3: SLA Risk — uses merchant's sla_days to calibrate risk thresholds
   logger.debug('Running SLA risk agent', { area_id, sla_days });
@@ -91,7 +108,7 @@ export async function getDispatchRecommendation(
   // Agent 6: Executive Summary
   logger.debug('Running executive summary agent');
   const summaryResult = await runExecutiveSummaryAgent({
-    hubId: hub_id,
+    hubId: resolvedHubId,
     areaId: area_id,
     weightGrams,
     parcelValue: parcel_value,
@@ -113,9 +130,9 @@ export async function getDispatchRecommendation(
   };
 
   // Keep last 200 decisions in memory
-  dispatchHistory.push({ ...decision, hub_id, area_id, decided_at: new Date().toISOString() });
+  dispatchHistory.push({ ...decision, hub_id: resolvedHubId, area_id, decided_at: new Date().toISOString() });
   if (dispatchHistory.length > 200) dispatchHistory.shift();
 
-  logger.info('Dispatch recommendation complete', { hub_id, area_id, dispatchType, partnerName });
+  logger.info('Dispatch recommendation complete', { hub_id: resolvedHubId, area_id, dispatchType, partnerName });
   return decision;
 }

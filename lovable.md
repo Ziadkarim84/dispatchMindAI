@@ -92,9 +92,9 @@ Subtitle: "5 AI agents · ~20 seconds · Claude Sonnet 4.6"
 
 Form fields (styled dark inputs with labels):
 
-- **Hub** — combobox / searchable dropdown. On page load fetch `GET /api/v1/hubs` (returns `{ id, name, operational_code }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `{operational_code}` in dim monospace on the right (e.g. `Kalabagan Hub  ISD-1`). Placeholder: "Search hub...". While loading show a skeleton inside the trigger. The selected hub's `id` is used as `hub_id`.
+- **Area** *(required)* — combobox / searchable dropdown. On page load fetch `GET /api/v1/areas` (returns `{ id, name, name_bn }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `#{id}` in dim monospace on the right (e.g. `Dhanmondi - Road 3  #2`). Placeholder: "Search area...". While loading show a skeleton inside the trigger. The selected area's `id` is used as `area_id`. **This is the only required location field — the backend derives the hub automatically.**
 
-- **Area** — combobox / searchable dropdown. On page load fetch `GET /api/v1/areas` (returns `{ id, name, name_bn }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `#{id}` in dim monospace on the right (e.g. `Dhanmondi - Road 3  #2`). Placeholder: "Search area...". While loading show a skeleton inside the trigger. The selected area's `id` is used as `area_id`.
+- **Hub** *(optional)* — combobox / searchable dropdown. On page load fetch `GET /api/v1/hubs` (returns `{ id, name, operational_code }[]`). Filter by name using fuzzy search (`fuse.js`). Each option shows `{name}` with `{operational_code}` in dim monospace on the right (e.g. `Kalabagan Hub  ISD-1`). Placeholder: "Auto-detected from area...". Add a small grey label beneath: "Optional — if left blank, the hub is derived from the selected area." While loading show a skeleton inside the trigger. If selected, its `id` is sent as `hub_id`; if not selected, omit `hub_id` from the request body entirely.
 
 - **Parcel Value (BDT)** — number input, placeholder "e.g. 1500". This is the merchant's cash-on-delivery (COD) value used to compute the COD fee per 4PL partner.
 - **Weight (kg)** — number input with decimal, placeholder "e.g. 1.2". The API accepts kg; the backend converts to grams and looks up the exact weight-tier price for each partner (≤0.5kg / ≤1kg / ≤2kg / ≤3kg / ≤4kg / ≤5kg / >5kg).
@@ -103,7 +103,7 @@ Form fields (styled dark inputs with labels):
 Use `shadcn/ui` `Command` + `Popover` for both comboboxes. Style dark to match the rest of the app.
 
 Below the form, a small info box:
-> 💡 **High-data combos:** Tejgaon Hub / Area 91 · Kalabagan Hub / Area 2 · Comilla Hub / Area 1 (OSD — higher charges)
+> 💡 **High-data areas:** Area 91 (Tejgaon) · Area 2 (Kalabagan/Dhanmondi) · Area 1 (Comilla, OSD — higher charges). Hub is auto-detected; you can override it manually.
 
 **Submit button:** Full width, electric blue gradient, "Run AI Pipeline →" text. Disabled while loading.
 

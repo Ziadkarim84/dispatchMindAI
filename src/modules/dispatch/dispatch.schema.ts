@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const dispatchRecommendSchema = z.object({
-  hub_id: z.number().int().positive(),
+  hub_id: z.number().int().positive().optional(),
   area_id: z.number().int().positive(),
   parcel_value: z.number().positive(),
   weight: z.number().positive(),
