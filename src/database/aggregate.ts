@@ -72,7 +72,7 @@ async function populatePartnerSlaPerformance(conn: mysql.Connection): Promise<vo
       COUNT(*)                                                    AS total_deliveries,
       SUM(
         CASE
-          WHEN TIMESTAMPDIFF(DAY, p.created_at, pl.created_at)
+          WHEN DATEDIFF(DATE(pl.created_at), DATE(p.created_at))
                > COALESCE(h.SLA_TARGET, 3)
           THEN 1 ELSE 0
         END
@@ -80,7 +80,7 @@ async function populatePartnerSlaPerformance(conn: mysql.Connection): Promise<vo
       ROUND(
         SUM(
           CASE
-            WHEN TIMESTAMPDIFF(DAY, p.created_at, pl.created_at)
+            WHEN DATEDIFF(DATE(pl.created_at), DATE(p.created_at))
                  > COALESCE(h.SLA_TARGET, 3)
             THEN 1 ELSE 0
           END
