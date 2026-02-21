@@ -1,14 +1,37 @@
 import { Request, Response, NextFunction } from 'express';
 import { sendSuccess, sendCreated } from '@common/utils/response.util';
 import { ValidationError } from '@common/errors/validation.error';
-import { hubParamsSchema, hubCostBodySchema, hubCostQuerySchema } from './hubs.schema';
+import { hubParamsSchema, hubCostBodySchema, hubCostQuerySchema, assignPartnersBodySchema } from './hubs.schema';
 import {
   getHubModelAdvice,
   getHubProfitability,
   getHubCosts,
   upsertHubCost,
   getAllHubs,
+  getHubSummary,
+  assignAreaPartners,
 } from './hubs.service';
+
+export async function hubSummaryHandler(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await getHubSummary();
+    sendSuccess(res, result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function assignPartnersHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = assignPartnersBodySchema.safeParse(req.body);
+    if (!body.success) throw new ValidationError('Invalid request body', body.error.flatten());
+
+    const results = await assignAreaPartners(body.data.assignments);
+    sendSuccess(res, results);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function listHubs(_req: Request, res: Response, next: NextFunction) {
   try {

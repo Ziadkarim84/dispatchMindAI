@@ -163,6 +163,45 @@ export interface FourplPartnerPricing {
   return_charge: number;
 }
 
+// ─── Hub Summary Types ────────────────────────────────────────────────────────
+
+export interface AreaAssignment {
+  area_id: number;
+  area_name?: string;
+  current_partner_id: number | null;
+  current_partner_name: string;
+  recommended_partner_id: number;
+  recommended_partner_name: string;
+  reason: string;
+}
+
+export interface HubSummaryItem {
+  hub_id: number;
+  hub_name: string;
+  recommendation: 'keep' | 'shift_to_4pl' | 'shift_to_3pl' | 'mixed_optimize' | 'assign_partners';
+  priority: 'high' | 'medium' | 'low';
+  recommended_action: string;
+  estimated_margin_improvement_90d: number;
+  suggested_assignments: AreaAssignment[];
+  // Merged from pre-aggregated data
+  total_areas: number;
+  fourpl_areas: number;
+  thrpl_areas: number;
+  unassigned_areas: number;
+  avg_monthly_margin: number;
+  projected_margin_90d: number;
+  avg_margin_per_parcel: number;
+  total_parcels_3m: number;
+  is_losing_money: boolean;
+}
+
+export interface HubSummaryResult {
+  generated_at: string;
+  total_hubs: number;
+  losing_hubs: number;
+  hubs: HubSummaryItem[];
+}
+
 // ─── API Response Types ───────────────────────────────────────────────────────
 
 export interface DispatchDecision {

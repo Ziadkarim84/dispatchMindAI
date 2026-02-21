@@ -38,7 +38,8 @@ Sidebar navigation (collapsible) with these pages:
 2. **Dispatch** (`/dispatch`) — Submit dispatch request, watch AI agents run
 3. **Partners** (`/partners`) — Partner optimizer
 4. **Hubs** (`/hubs`) — Hub profitability and model advice
-5. **History** (`/history`) — Past dispatch decisions
+5. **Hub Summary** (`/hubs/summary`) — Fleet-wide hub health, losing hubs, AI partner reassignment
+6. **History** (`/history`) — Past dispatch decisions
 
 Sidebar items include an icon, label, and active state highlight.
 
@@ -78,6 +79,7 @@ Columns: Hub ID | Area ID | Type (badge) | Partner | Margin | Risk | Confidence 
 - "New Dispatch" → navigate to /dispatch
 - "Optimize Partner" → navigate to /partners
 - "Analyze Hub" → navigate to /hubs
+- "Fleet Health" → navigate to /hubs/summary
 
 ---
 
@@ -245,7 +247,69 @@ Below: "Projected 90-Day Profitability: BDT X" in large text.
 
 ---
 
-## Page 5: History (`/history`)
+## Page 5: Hub Summary (`/hubs/summary`)
+
+Title: "🏭 Hub Fleet Summary"
+Subtitle: "AI-powered fleet health · Identifies losing hubs · Recommends partner reassignments"
+
+This page calls `GET /api/v1/hubs/summary` on load. The API runs a single Claude analysis across all hubs using pre-aggregated contribution margin data — expect ~10 seconds.
+
+### Loading state
+
+Full-page skeleton with a centered pulsing message: "🤖 AI is analyzing all hubs…" with an electric blue animated progress bar across the top.
+
+### Header stats row — 4 cards
+
+After data loads, show:
+- **Total Hubs Analyzed** — number from `total_hubs`
+- **Losing Money** — count from `losing_hubs`, red if > 0
+- **High Priority Actions** — count of hubs where `priority === "high"`, amber
+- **Estimated Fleet Savings** — sum of all `estimated_margin_improvement_90d` across hubs with recommendations != "keep", shown as "BDT X over 90 days"
+
+### Hub cards grid
+
+Render one card per hub from `hubs[]`, sorted: high priority first, then medium, then low/keep.
+
+Each card shows:
+- **Hub name** (large) + hub ID in dim monospace
+- **Recommendation badge** — color-coded pill:
+  - `keep` → green "✓ KEEP"
+  - `shift_to_4pl` → purple "→ SHIFT TO 4PL"
+  - `shift_to_3pl` → emerald "← SHIFT TO 3PL"
+  - `mixed_optimize` → amber "⚡ OPTIMIZE MIX"
+  - `assign_partners` → blue "＋ ASSIGN PARTNERS"
+- **Priority badge** — small pill: red "HIGH", amber "MEDIUM", grey "LOW"
+- **Margin row** — "Current 90d Margin: BDT X" (red if negative, green if positive) + "Potential improvement: BDT +Y"
+- **Area breakdown** — small stat chips: `{total_areas} areas total · {fourpl_areas} 4PL · {thrpl_areas} 3PL · {unassigned_areas} unassigned`
+- **Recommended action text** — italic grey paragraph (the `recommended_action` field)
+- **Suggested assignments accordion** — collapsed by default, click to expand:
+  - Table: Area ID | Area Name | Current Partner | → | Recommended Partner | Reason
+  - Current partner in amber (if 4PL) or grey (if 3PL/unassigned)
+  - Recommended partner in green (3PL) or purple (4PL)
+  - A **"Select All"** checkbox at the top of the accordion and individual checkboxes per row
+
+### Apply Assignments button
+
+A sticky bottom bar (appears when any assignments are checked):
+```
+[X assignments selected]                [Apply Selected Assignments →]
+```
+- Button triggers `POST /api/v1/hubs/assign-partners` with the selected `{ area_id, partner_id }` pairs
+- Show a loading spinner on the button during the request
+- On success: green toast "X area assignments updated" and refresh the page
+- On failure: red toast with the error message
+- The request body format: `{ "assignments": [{ "area_id": 91, "partner_id": 11 }, ...] }`
+
+### Filter bar (top of cards)
+
+Three toggle buttons to filter cards:
+- **All** (default)
+- **Losing Money** (hubs where `is_losing_money === true`)
+- **Has Suggestions** (hubs where `suggested_assignments.length > 0`)
+
+---
+
+## Page 6: History (`/history`)
 
 Title: "📋 Dispatch History"
 Subtitle: "In-memory log · Last 50 decisions · Resets on server restart"
@@ -281,11 +345,61 @@ Use `fetch` or `axios` for all calls. Show a toast notification on API errors.
 GET  /health                                → API status check
 POST /api/v1/dispatch/recommend             → Dispatch page
 GET  /api/v1/dispatch/history               → Dashboard + History page
-GET  /api/v1/areas                          → Area dropdown (Partners page on load)
+GET  /api/v1/areas                          → Area dropdown (Partners + Dispatch page on load)
 GET  /api/v1/partners/optimize?area_id=     → Partners page (hub derived server-side)
-GET  /api/v1/hubs                           → Hub dropdown (Hubs page on load)
+GET  /api/v1/hubs                           → Hub dropdown (Hubs + Dispatch page on load)
+GET  /api/v1/hubs/summary                   → Hub Summary page (AI fleet analysis, ~10s)
+POST /api/v1/hubs/assign-partners           → Hub Summary page (apply partner assignments)
 GET  /api/v1/hubs/:hubId/profitability      → Hubs page
 GET  /api/v1/hubs/:hubId/model-advice       → Hubs page
+```
+
+**`POST /api/v1/hubs/assign-partners` body:**
+```json
+{
+  "assignments": [
+    { "area_id": 91, "partner_id": 11 },
+    { "area_id": 2,  "partner_id": 3  }
+  ]
+}
+```
+Returns array of `{ area_id, partner_id, partner_name, status: "assigned"|"failed" }`.
+
+**`GET /api/v1/hubs/summary` response shape:**
+```json
+{
+  "generated_at": "2026-02-22T10:00:00Z",
+  "total_hubs": 12,
+  "losing_hubs": 4,
+  "hubs": [
+    {
+      "hub_id": 2,
+      "hub_name": "Kalabagan Hub",
+      "recommendation": "shift_to_4pl",
+      "priority": "high",
+      "recommended_action": "This hub is losing BDT 45,000/month. Shifting 15 ISD-zone unassigned areas to Pathao (BDT 55/kg) would recover ~BDT 38,000.",
+      "estimated_margin_improvement_90d": 114000,
+      "is_losing_money": true,
+      "avg_monthly_margin": -15000,
+      "projected_margin_90d": -45000,
+      "total_areas": 45,
+      "fourpl_areas": 3,
+      "thrpl_areas": 27,
+      "unassigned_areas": 15,
+      "suggested_assignments": [
+        {
+          "area_id": 91,
+          "area_name": "Tejgaon Industrial",
+          "current_partner_id": null,
+          "current_partner_name": "Unassigned (3PL default)",
+          "recommended_partner_id": 11,
+          "recommended_partner_name": "Pathao",
+          "reason": "ISD zone, cheapest 4PL at BDT 55/kg"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 **Loading states:** Every API call must show a skeleton loader or progress indicator. Never show a blank panel.

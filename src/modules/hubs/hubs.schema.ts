@@ -20,6 +20,16 @@ export const hubCostBodySchema = z.object({
   notes: z.string().optional(),
 });
 
+export const assignPartnersBodySchema = z.object({
+  assignments: z.array(
+    z.object({
+      area_id: z.number().int().positive(),
+      partner_id: z.number().int().positive(),
+    })
+  ).min(1),
+});
+
 export type HubParams = z.infer<typeof hubParamsSchema>;
 export type HubCostBody = z.infer<typeof hubCostBodySchema>;
 export type HubCostQuery = z.infer<typeof hubCostQuerySchema>;
+export type AssignPartnersBody = z.infer<typeof assignPartnersBodySchema>;
