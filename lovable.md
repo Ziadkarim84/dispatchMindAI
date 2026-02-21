@@ -38,7 +38,7 @@ Sidebar navigation (collapsible) with these pages:
 2. **Dispatch** (`/dispatch`) — Submit dispatch request, watch AI agents run
 3. **Partners** (`/partners`) — Partner optimizer
 4. **Hubs** (`/hubs`) — Hub profitability and model advice
-5. **Hub Summary** (`/hubs/summary`) — Fleet-wide hub health, losing hubs, AI partner reassignment
+5. **Hub Health** (`/hubs/summary`) — Hub profitability health check, losing hubs, AI partner reassignment
 6. **History** (`/history`) — Past dispatch decisions
 
 Sidebar items include an icon, label, and active state highlight.
@@ -79,7 +79,7 @@ Columns: Hub ID | Area ID | Type (badge) | Partner | Margin | Risk | Confidence 
 - "New Dispatch" → navigate to /dispatch
 - "Optimize Partner" → navigate to /partners
 - "Analyze Hub" → navigate to /hubs
-- "Fleet Health" → navigate to /hubs/summary
+- "Hub Health" → navigate to /hubs/summary
 
 ---
 
@@ -247,10 +247,10 @@ Below: "Projected 90-Day Profitability: BDT X" in large text.
 
 ---
 
-## Page 5: Hub Summary (`/hubs/summary`)
+## Page 5: Hub Health (`/hubs/summary`)
 
-Title: "🏭 Hub Fleet Summary"
-Subtitle: "AI-powered fleet health · Identifies losing hubs · Recommends partner reassignments"
+Title: "🏥 Hub Health"
+Subtitle: "AI-powered profitability check · Identifies losing hubs · Recommends partner reassignments"
 
 This page calls `GET /api/v1/hubs/summary` on load. The API runs a single Claude analysis across all hubs using pre-aggregated contribution margin data — expect ~10 seconds.
 
@@ -264,7 +264,7 @@ After data loads, show:
 - **Total Hubs Analyzed** — number from `total_hubs`
 - **Losing Money** — count from `losing_hubs`, red if > 0
 - **High Priority Actions** — count of hubs where `priority === "high"`, amber
-- **Estimated Fleet Savings** — sum of all `estimated_margin_improvement_90d` across hubs with recommendations != "keep", shown as "BDT X over 90 days"
+- **Estimated Savings** — sum of all `estimated_margin_improvement_90d` across hubs with recommendations != "keep", shown as "BDT X over 90 days"
 
 ### Hub cards grid
 
@@ -348,8 +348,8 @@ GET  /api/v1/dispatch/history               → Dashboard + History page
 GET  /api/v1/areas                          → Area dropdown (Partners + Dispatch page on load)
 GET  /api/v1/partners/optimize?area_id=     → Partners page (hub derived server-side)
 GET  /api/v1/hubs                           → Hub dropdown (Hubs + Dispatch page on load)
-GET  /api/v1/hubs/summary                   → Hub Summary page (AI fleet analysis, ~10s)
-POST /api/v1/hubs/assign-partners           → Hub Summary page (apply partner assignments)
+GET  /api/v1/hubs/summary                   → Hub Health page (AI analysis, ~10s)
+POST /api/v1/hubs/assign-partners           → Hub Health page (apply partner assignments)
 GET  /api/v1/hubs/:hubId/profitability      → Hubs page
 GET  /api/v1/hubs/:hubId/model-advice       → Hubs page
 ```
