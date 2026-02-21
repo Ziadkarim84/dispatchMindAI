@@ -141,9 +141,9 @@ async function populateHubContributionMargin(conn: mysql.Connection): Promise<vo
       COALESCE((
         SELECT SUM(fp.FOURPL_DELIVERY_CHARGE)
         FROM sl_fourpl_parcels fp
-        WHERE YEAR(fp.created_at)  = YEAR(p.created_at)
-          AND MONTH(fp.created_at) = MONTH(p.created_at)
-        LIMIT 1
+        WHERE fp.HUB_ID            = r.HUB_ID
+          AND YEAR(fp.CREATED_AT)  = YEAR(p.created_at)
+          AND MONTH(fp.CREATED_AT) = MONTH(p.created_at)
       ), 0)                                                        AS total_4pl_cost,
       COALESCE((
         SELECT rent + employee_cost + utility_cost + maintenance_cost + other_cost
