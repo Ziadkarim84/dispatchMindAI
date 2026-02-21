@@ -7,7 +7,17 @@ import {
   getHubProfitability,
   getHubCosts,
   upsertHubCost,
+  getAllHubs,
 } from './hubs.service';
+
+export async function listHubs(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const hubs = await getAllHubs();
+    sendSuccess(res, hubs);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function hubProfitability(req: Request, res: Response, next: NextFunction) {
   try {

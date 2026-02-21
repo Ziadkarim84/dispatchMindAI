@@ -189,7 +189,19 @@ The needle animates to the value on load.
 Title: "🏭 Hub Intelligence"
 Subtitle: "Profitability prediction · Operating model advisor · Network Strategy agent"
 
-### Hub ID input + two action buttons side by side:
+### Hub input + two action buttons side by side:
+
+On page load, fetch all active delivery hubs from `GET /api/v1/hubs` (returns `{ id, name, operational_code }[]`).
+
+Replace the Hub ID text input with a **combobox / searchable dropdown**:
+- Search box that filters hubs by name using **fuzzy search** (use `fuse.js`)
+- Each option shows: `{name}` with `{operational_code}` in dim monospace on the right (e.g. `Kalabagan Hub  ISD-1`)
+- Placeholder: "Search hub..."
+- While hubs are loading show a skeleton/spinner inside the dropdown trigger
+- If the hubs API fails, fall back to a plain number input with an error toast
+- Style dark to match the rest of the app — use `shadcn/ui` `Command` + `Popover` for the combobox pattern
+
+Two action buttons side by side (enabled only after a hub is selected):
 - "Analyze Profitability" (blue)
 - "Get Model Advice" (purple)
 
@@ -266,6 +278,7 @@ POST /api/v1/dispatch/recommend             → Dispatch page
 GET  /api/v1/dispatch/history               → Dashboard + History page
 GET  /api/v1/areas                          → Area dropdown (Partners page on load)
 GET  /api/v1/partners/optimize?area_id=     → Partners page (hub derived server-side)
+GET  /api/v1/hubs                           → Hub dropdown (Hubs page on load)
 GET  /api/v1/hubs/:hubId/profitability      → Hubs page
 GET  /api/v1/hubs/:hubId/model-advice       → Hubs page
 ```
@@ -385,6 +398,12 @@ export interface Area {
   name_bn: string | null;
 }
 
+export interface Hub {
+  id: number;
+  name: string;
+  operational_code: string | null;
+}
+
 export interface DispatchResult {
   type: '3PL' | '4PL';
   partner: string;
@@ -452,6 +471,11 @@ export const api = {
   /** Fetch all active areas with hub mappings — for the area dropdown */
   listAreas(): Promise<Area[]> {
     return apiFetch<Area[]>('/api/v1/areas');
+  },
+
+  /** Fetch all active delivery hubs — for the hub dropdown */
+  listHubs(): Promise<Hub[]> {
+    return apiFetch<Hub[]>('/api/v1/hubs');
   },
 
   /** Check if the backend is reachable */

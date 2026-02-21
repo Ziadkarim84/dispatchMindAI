@@ -5,6 +5,23 @@ import { runNetworkStrategyAgent, runHubModelAdvisorAgent } from '@agents/networ
 import { query } from '@database/connection';
 import { logger } from '@common/utils/logger.util';
 
+// ─── Hub List ─────────────────────────────────────────────────────────────────
+
+export interface HubListItem {
+  id: number;
+  name: string;
+  operational_code: string | null;
+}
+
+export async function getAllHubs(): Promise<HubListItem[]> {
+  return query<HubListItem[]>(
+    `SELECT ID AS id, HUB_NAME AS name, OPERATIONAL_CODE AS operational_code
+     FROM sl_hubs
+     WHERE STATUS = 'active' AND IS_DELIVERY = 1
+     ORDER BY HUB_NAME ASC`,
+  );
+}
+
 // ─── Hub Profitability ────────────────────────────────────────────────────────
 
 export async function getHubProfitability(hubId: number): Promise<HubProfitabilityResult> {
