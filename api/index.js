@@ -1,7 +1,10 @@
-// Entry point for Vercel serverless deployment.
-// The build step (npm run build = tsc && tsc-alias) compiles src/ → dist/
-// with all TypeScript path aliases (@common/*, @agents/*, etc.) rewritten
-// to relative paths, so no runtime alias registration is needed.
+// Prevent process crashes in serverless — log the error instead of exiting
+process.on('unhandledRejection', (reason) => {
+  console.error('[serverless] Unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[serverless] Uncaught exception:', err.message, err.stack);
+});
 
 let app;
 try {
