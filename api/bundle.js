@@ -878,11 +878,16 @@ Your report must include:
 
 Keep it under 150 words. Write in plain English, no jargon. Return plain text (no JSON, no markdown).`;
 async function runExecutiveSummaryAgent(input) {
-  const { hubId, areaId, weightGrams, parcelValue, slaDays, volumeForecast, costModels, slaRisks, partnerRanking, dispatchType } = input;
+  const { hubId, areaId, weightGrams, parcelValue, slaDays, volumeForecast, costModels, partnerRanking, dispatchType } = input;
   const recommendedCost = costModels.find((c) => c.scenario === (dispatchType === "4PL" ? "4PL" : "3PL"));
-  const topRisk = slaRisks.sort((a, b) => b.risk_score - a.risk_score)[0];
   const resolvedPartner = dispatchType === "4PL" ? partnerRanking.optimal_partner_name : "Shopup (Internal)";
   const resolvedBackup = dispatchType === "4PL" ? partnerRanking.backup_partner_name ?? "None" : "N/A";
+  const slaSection = dispatchType === "4PL" ? `Selected 4PL partner SLA risk:
+- Partner: ${partnerRanking.optimal_partner_name}
+- Risk score: ${partnerRanking.sla_risk_score}/100
+- Confidence: ${partnerRanking.confidence}%` : `4PL evaluation result (reason for using in-house fleet):
+- Best available 4PL risk score: ${partnerRanking.sla_risk_score}/100 (threshold: 60 \u2014 must be below to use 4PL)
+- 4PL candidate: ${partnerRanking.optimal_partner_name ?? "none found"}`;
   const userPrompt = `Hub: ${hubId} | Area: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}, required SLA: ${slaDays} day${slaDays !== 1 ? "s" : ""}
 Dispatch decision: ${dispatchType}
@@ -898,10 +903,7 @@ Margin analysis (${dispatchType} scenario):
 - Avg margin per parcel: BDT ${recommendedCost?.avg_margin_per_parcel ?? "N/A"}
 - Delta vs current: BDT ${recommendedCost?.margin_delta_vs_current ?? "N/A"}
 
-Area SLA context (historical delivery performance, for reference only):
-- Partner: ${topRisk?.partner_name ?? "N/A"}
-- Risk level: ${topRisk?.risk_level ?? "N/A"}
-- Breach probability: ${topRisk?.breach_probability ?? "N/A"}%
+${slaSection}
 
 Write the executive summary report now.`;
   const summary = await runPrompt(SYSTEM_PROMPT4, userPrompt);

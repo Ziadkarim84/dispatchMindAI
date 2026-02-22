@@ -34,10 +34,9 @@ Keep it under 150 words. Write in plain English, no jargon. Return plain text (n
 export async function runExecutiveSummaryAgent(
   input: ExecutiveSummaryInput
 ): Promise<AgentResult<string>> {
-  const { hubId, areaId, weightGrams, parcelValue, slaDays, volumeForecast, costModels, slaRisks, partnerRanking, dispatchType } = input;
+  const { hubId, areaId, weightGrams, parcelValue, slaDays, volumeForecast, costModels, partnerRanking, dispatchType } = input;
 
   const recommendedCost = costModels.find(c => c.scenario === (dispatchType === '4PL' ? '4PL' : '3PL'));
-  const topRisk = slaRisks.sort((a, b) => b.risk_score - a.risk_score)[0];
 
   // For 3PL decisions the partner is always Shopup Internal, not the 4PL candidate
   const resolvedPartner = dispatchType === '4PL'
@@ -46,6 +45,17 @@ export async function runExecutiveSummaryAgent(
   const resolvedBackup = dispatchType === '4PL'
     ? (partnerRanking.backup_partner_name ?? 'None')
     : 'N/A';
+
+  // For 4PL: show which external partner was evaluated and its risk
+  // For 3PL: only show the evaluated partner's risk score as reason for rejection — no partner name to avoid Shopup/Shopup Internal confusion
+  const slaSection = dispatchType === '4PL'
+    ? `Selected 4PL partner SLA risk:
+- Partner: ${partnerRanking.optimal_partner_name}
+- Risk score: ${partnerRanking.sla_risk_score}/100
+- Confidence: ${partnerRanking.confidence}%`
+    : `4PL evaluation result (reason for using in-house fleet):
+- Best available 4PL risk score: ${partnerRanking.sla_risk_score}/100 (threshold: 60 — must be below to use 4PL)
+- 4PL candidate: ${partnerRanking.optimal_partner_name ?? 'none found'}`;
 
   const userPrompt = `Hub: ${hubId} | Area: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}, required SLA: ${slaDays} day${slaDays !== 1 ? 's' : ''}
@@ -62,10 +72,7 @@ Margin analysis (${dispatchType} scenario):
 - Avg margin per parcel: BDT ${recommendedCost?.avg_margin_per_parcel ?? 'N/A'}
 - Delta vs current: BDT ${recommendedCost?.margin_delta_vs_current ?? 'N/A'}
 
-Area SLA context (historical delivery performance, for reference only):
-- Partner: ${topRisk?.partner_name ?? 'N/A'}
-- Risk level: ${topRisk?.risk_level ?? 'N/A'}
-- Breach probability: ${topRisk?.breach_probability ?? 'N/A'}%
+${slaSection}
 
 Write the executive summary report now.`;
 
