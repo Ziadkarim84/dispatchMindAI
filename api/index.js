@@ -1,11 +1,11 @@
-// Register TypeScript path aliases (@common/*, @agents/*, @database/*, etc.)
-// Vercel esbuild transpiles .ts files individually but does NOT rewrite import aliases,
-// so we register tsconfig-paths at runtime to resolve them correctly.
-require('tsconfig-paths/register');
+// Entry point for Vercel serverless deployment.
+// The build step (npm run build = tsc && tsc-alias) compiles src/ → dist/
+// with all TypeScript path aliases (@common/*, @agents/*, etc.) rewritten
+// to relative paths, so no runtime alias registration is needed.
 
 let app;
 try {
-  const { createApp } = require('../src/app');
+  const { createApp } = require('../dist/app');
   app = createApp();
 } catch (err) {
   const express = require('express');
