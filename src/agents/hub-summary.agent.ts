@@ -1,30 +1,29 @@
 import { AgentResult } from '@common/types';
-import { HubSummaryItem, HubSummaryResult } from '@common/types';
+import { HubSummaryItem, HubSummaryResult, AreaAssignment } from '@common/types';
 import { query } from '@database/connection';
-import { runPrompt } from './base.agent';
+import { runPromptWithOptions } from './base.agent';
 import { logger } from '@common/utils/logger.util';
 
+// Claude only receives hub-level summaries — no per-area rows.
+// suggested_assignments are generated programmatically after Claude's response.
 const SYSTEM_PROMPT = `You are a logistics network optimization expert for RedX, a courier company in Bangladesh.
-You will receive aggregated hub performance data (last 3 months) including:
-- Revenue, 4PL partner costs, fixed costs, and margins per hub
-- Current 3PL/4PL/unassigned area breakdown per hub
-- All areas served by each hub with their current partner assignments
-- Available 4PL partners and their zone-based pricing
+You will receive aggregated hub performance data (last 3 months):
+- Revenue, 4PL partner costs, fixed costs, and contribution margin per hub
+- Area breakdown: total areas, fourpl (active non-Shopup partner), thrpl (Shopup Internal), unassigned
+- Available 4PL partner pricing per zone
 
 Rules:
-- partner_id=3 ("Shopup Internal") means the area uses 3PL (internal RedX fleet) — no external partner cost
-- Any other partner_id means 4PL (external courier partner)
-- Unassigned areas (no active partner entry) are also 3PL by default
+- partner_id=3 (Shopup Internal) = 3PL, zero external cost
+- fourpl_areas = areas served by an external 4PL courier
+- unassigned_areas = no partner assigned, defaults to 3PL
 - Zone IDs: 1=ISD (Dhaka City), 2=SUB (Dhaka Suburbs), 7+=OSD (Outside Dhaka)
 
-Your task: for EACH hub, assess profitability and recommend the best action.
-- If a 3PL-heavy hub is losing money → suggest shifting specific areas to 4PL partners (pick the cheapest partner per zone)
-- If a 4PL-heavy hub is losing money due to high partner costs → suggest reverting specific areas to 3PL
-- If a hub has unassigned areas → suggest assigning the cheapest appropriate 4PL partner (or 3PL if margins are better)
-- If a hub is profitable and well-configured → recommend "keep"
-
-For suggested_assignments: only include areas that actually need to change. Use the real area_ids from the data.
-recommended_partner_id=3 means "revert to 3PL (Shopup Internal)".
+For each hub, return one of:
+- "keep"           — hub is profitable, no action needed
+- "shift_to_4pl"   — hub losing money, routing to 4PL partner would reduce cost
+- "shift_to_3pl"   — hub losing money due to high 4PL costs, bring back in-house
+- "mixed_optimize" — some areas should go 4PL, others back to 3PL
+- "assign_partners"— hub has unassigned areas that need a partner
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -34,18 +33,7 @@ Return ONLY a valid JSON array (no markdown, no explanation):
     "recommendation": "keep" | "shift_to_4pl" | "shift_to_3pl" | "mixed_optimize" | "assign_partners",
     "priority": "high" | "medium" | "low",
     "recommended_action": "<clear human-readable explanation of what to do and why>",
-    "estimated_margin_improvement_90d": <number in BDT, positive means improvement>,
-    "suggested_assignments": [
-      {
-        "area_id": <number>,
-        "area_name": "<string>",
-        "current_partner_id": <number | null>,
-        "current_partner_name": "<string>",
-        "recommended_partner_id": <number>,
-        "recommended_partner_name": "<string>",
-        "reason": "<brief reason>"
-      }
-    ]
+    "estimated_margin_improvement_90d": <number in BDT, positive means improvement>
   }
 ]`;
 
@@ -121,7 +109,7 @@ async function fetchAreaAssignments(): Promise<AreaRow[]> {
 interface PartnerPricingRow {
   partner_id: number;
   partner_name: string;
-  zone_id: number;
+  zone_id: number;        // 1=ISD, 2=SUB, 3=OSD (simplified)
   zone_name: string;
   kg1_price: number | null;
   cod_percentage: number | null;
@@ -150,85 +138,171 @@ interface ProcessedArea {
   area_id: number;
   area_name: string;
   zone_id: number;
-  partner_ids: number[];        // all active partner IDs for this area
-  partner_names: string[];
-  is_4pl: boolean;              // has any active non-Shopup partner
-  is_unassigned: boolean;       // no active partner at all
+  partner_id: number | null;   // primary active partner (first non-null)
+  partner_name: string | null;
+  is_4pl: boolean;
+  is_unassigned: boolean;
 }
 
-interface HubContext {
-  hub_id: number;
-  hub_name: string;
-  total_parcels_3m: number;
-  total_revenue_3m: number;
-  total_4pl_cost_3m: number;
-  total_fixed_cost_3m: number;
-  total_margin_3m: number;
-  avg_margin_per_parcel: number;
-  total_areas: number;
-  fourpl_areas: number;
-  thrpl_areas: number;
-  unassigned_areas: number;
+interface HubAreaBreakdown {
+  total: number;
+  fourpl: number;
+  thrpl: number;
+  unassigned: number;
   areas: ProcessedArea[];
 }
 
-function buildHubContexts(margins: HubMarginRow[], areaRows: AreaRow[]): HubContext[] {
-  // Group area rows by hub_id, then by area_id
-  const hubAreaMap = new Map<number, Map<number, ProcessedArea>>();
+function buildAreaBreakdowns(areaRows: AreaRow[]): Map<number, HubAreaBreakdown> {
+  // First pass: collect all partner_ids per area
+  const areaMap = new Map<number, { hubId: number; area: ProcessedArea; partnerIds: Set<number> }>();
 
   for (const row of areaRows) {
-    if (!hubAreaMap.has(row.hub_id)) hubAreaMap.set(row.hub_id, new Map());
-    const areaMap = hubAreaMap.get(row.hub_id)!;
-
     if (!areaMap.has(row.area_id)) {
       areaMap.set(row.area_id, {
-        area_id: row.area_id,
-        area_name: row.area_name,
-        zone_id: row.zone_id,
-        partner_ids: [],
-        partner_names: [],
-        is_4pl: false,
-        is_unassigned: true,
+        hubId: row.hub_id,
+        partnerIds: new Set(),
+        area: {
+          area_id: row.area_id,
+          area_name: row.area_name,
+          zone_id: row.zone_id,
+          partner_id: null,
+          partner_name: null,
+          is_4pl: false,
+          is_unassigned: true,
+        },
       });
     }
-
-    const area = areaMap.get(row.area_id)!;
+    const entry = areaMap.get(row.area_id)!;
     if (row.partner_id !== null) {
-      area.is_unassigned = false;
-      if (!area.partner_ids.includes(row.partner_id)) {
-        area.partner_ids.push(row.partner_id);
-        area.partner_names.push(row.partner_name ?? 'Unknown');
+      entry.partnerIds.add(row.partner_id);
+      entry.area.is_unassigned = false;
+      if (entry.area.partner_id === null) {
+        entry.area.partner_id = row.partner_id;
+        entry.area.partner_name = row.partner_name;
       }
-      if (row.partner_id !== 3) {
-        area.is_4pl = true;
-      }
+      if (row.partner_id !== 3) entry.area.is_4pl = true;
     }
   }
 
-  return margins.map(m => {
-    const areaMap = hubAreaMap.get(m.hub_id) ?? new Map<number, ProcessedArea>();
-    const areas = Array.from(areaMap.values());
+  // Second pass: group by hub
+  const hubMap = new Map<number, HubAreaBreakdown>();
+  for (const { hubId, area } of areaMap.values()) {
+    if (!hubMap.has(hubId)) {
+      hubMap.set(hubId, { total: 0, fourpl: 0, thrpl: 0, unassigned: 0, areas: [] });
+    }
+    const bd = hubMap.get(hubId)!;
+    bd.total++;
+    bd.areas.push(area);
+    if (area.is_4pl)           bd.fourpl++;
+    else if (area.is_unassigned) bd.unassigned++;
+    else                         bd.thrpl++;
+  }
+  return hubMap;
+}
 
-    const fourpl_areas = areas.filter(a => a.is_4pl).length;
-    const unassigned_areas = areas.filter(a => a.is_unassigned).length;
-    const thrpl_areas = areas.length - fourpl_areas - unassigned_areas;
+// Maps sl_areas.ZONE_ID → sl_fourpl_partner_pricing.zone_id
+function toPartnerZoneId(zoneId: number): number {
+  if (zoneId === 1) return 1;
+  if (zoneId === 2) return 2;
+  return 3; // 7+ → OSD
+}
 
-    return {
-      hub_id: m.hub_id,
-      hub_name: m.hub_name,
-      total_parcels_3m: m.total_parcels_3m,
-      total_revenue_3m: m.total_revenue_3m,
-      total_4pl_cost_3m: m.total_4pl_cost_3m,
-      total_fixed_cost_3m: m.total_fixed_cost_3m,
-      total_margin_3m: m.total_margin_3m,
-      avg_margin_per_parcel: m.avg_margin_per_parcel,
-      total_areas: areas.length,
-      fourpl_areas,
-      thrpl_areas,
-      unassigned_areas,
-      areas,
-    };
-  });
+function cheapestPartnerForZone(
+  partnerZoneId: number,
+  partners: PartnerPricingRow[]
+): PartnerPricingRow | null {
+  const candidates = partners.filter(p => p.zone_id === partnerZoneId && p.kg1_price !== null);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, p) => (p.kg1_price! < best.kg1_price! ? p : best));
+}
+
+const MAX_SUGGESTIONS = 20;
+
+function buildSuggestedAssignments(
+  recommendation: string,
+  breakdown: HubAreaBreakdown,
+  partners: PartnerPricingRow[]
+): AreaAssignment[] {
+  const suggestions: AreaAssignment[] = [];
+
+  if (recommendation === 'shift_to_4pl' || recommendation === 'assign_partners') {
+    // Suggest assigning unassigned + 3PL areas to the cheapest 4PL partner
+    const candidates = breakdown.areas
+      .filter(a => a.is_unassigned || (!a.is_4pl && !a.is_unassigned))
+      .slice(0, MAX_SUGGESTIONS);
+
+    for (const area of candidates) {
+      const partnerZoneId = toPartnerZoneId(area.zone_id);
+      const partner = cheapestPartnerForZone(partnerZoneId, partners);
+      if (!partner) continue;
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: area.partner_id,
+        current_partner_name: area.is_unassigned
+          ? 'Unassigned (3PL default)'
+          : (area.partner_name ?? 'Shopup Internal'),
+        recommended_partner_id: partner.partner_id,
+        recommended_partner_name: partner.partner_name,
+        reason: `Cheapest 4PL for zone (BDT ${partner.kg1_price}/kg)`,
+      });
+    }
+  } else if (recommendation === 'shift_to_3pl') {
+    // Suggest reverting 4PL areas to Shopup Internal
+    const candidates = breakdown.areas
+      .filter(a => a.is_4pl)
+      .slice(0, MAX_SUGGESTIONS);
+
+    for (const area of candidates) {
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: area.partner_id,
+        current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
+        recommended_partner_id: 3,
+        recommended_partner_name: 'Shopup Internal',
+        reason: 'Revert to 3PL to reduce external partner cost',
+      });
+    }
+  } else if (recommendation === 'mixed_optimize') {
+    // Unassigned → cheapest 4PL; excess 4PL (no pricing data) → 3PL
+    const unassigned = breakdown.areas
+      .filter(a => a.is_unassigned)
+      .slice(0, MAX_SUGGESTIONS / 2);
+
+    for (const area of unassigned) {
+      const partnerZoneId = toPartnerZoneId(area.zone_id);
+      const partner = cheapestPartnerForZone(partnerZoneId, partners);
+      if (!partner) continue;
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: null,
+        current_partner_name: 'Unassigned (3PL default)',
+        recommended_partner_id: partner.partner_id,
+        recommended_partner_name: partner.partner_name,
+        reason: `Assign to cheapest 4PL for zone (BDT ${partner.kg1_price}/kg)`,
+      });
+    }
+
+    const fourplAreas = breakdown.areas
+      .filter(a => a.is_4pl)
+      .slice(0, MAX_SUGGESTIONS / 2);
+
+    for (const area of fourplAreas) {
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: area.partner_id,
+        current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
+        recommended_partner_id: 3,
+        recommended_partner_name: 'Shopup Internal',
+        reason: 'Revert to 3PL to cut external partner cost',
+      });
+    }
+  }
+
+  return suggestions;
 }
 
 function parseClaudeJson<T>(raw: string): T {
@@ -244,7 +318,14 @@ function parseClaudeJson<T>(raw: string): T {
 
 // ─── Main agent ────────────────────────────────────────────────────────────────
 
-type ClaudeHubItem = HubSummaryItem & { reasoning?: string };
+interface ClaudeHubRec {
+  hub_id: number;
+  hub_name: string;
+  recommendation: HubSummaryItem['recommendation'];
+  priority: HubSummaryItem['priority'];
+  recommended_action: string;
+  estimated_margin_improvement_90d: number;
+}
 
 export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult>> {
   logger.debug('[HubSummaryAgent] Fetching hub data');
@@ -269,79 +350,149 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
     };
   }
 
-  const hubContexts = buildHubContexts(margins, areaRows);
+  const areaBreakdowns = buildAreaBreakdowns(areaRows);
 
-  // Limit areas per hub to avoid token overflow (send up to 30 areas per hub)
-  const hubsForPrompt = hubContexts.map(h => ({
-    ...h,
-    areas: h.areas.slice(0, 30).map(a => ({
-      area_id: a.area_id,
-      area_name: a.area_name,
-      zone_id: a.zone_id,
-      current_partner_id: a.is_unassigned ? null : (a.partner_ids[0] ?? null),
-      current_partner_name: a.is_unassigned
-        ? 'Unassigned (3PL default)'
-        : (a.partner_names[0] ?? 'Shopup Internal'),
-      is_4pl: a.is_4pl,
-    })),
-    area_note: h.areas.length > 30 ? `(showing 30 of ${h.areas.length} areas)` : undefined,
-  }));
+  // Pre-filter: only send the worst hubs to Claude (max 15).
+  // Hubs are already sorted by total_margin_3m ASC (worst first).
+  // Profitable hubs with no unassigned areas auto-get "keep".
+  const MAX_CLAUDE_HUBS = 15;
+  const allProblemHubs = margins.filter(m => {
+    const bd = areaBreakdowns.get(m.hub_id);
+    return m.total_margin_3m < 0 || (bd && bd.unassigned > 0);
+  });
+  const problemHubs = allProblemHubs.slice(0, MAX_CLAUDE_HUBS);
+  const keepHubs = margins.filter(m => !problemHubs.some(p => p.hub_id === m.hub_id));
 
-  const userPrompt = `Hub performance summary (last 3 months):
-${JSON.stringify(hubsForPrompt, null, 2)}
+  logger.debug('[HubSummaryAgent] Hub split', {
+    problemHubs: problemHubs.length,
+    autoKeep: keepHubs.length,
+  });
 
-Available 4PL partners and their pricing per zone:
+  // Build compact hub summaries for Claude — no per-area detail rows
+  const hubsForClaude = problemHubs.map(m => {
+    const bd = areaBreakdowns.get(m.hub_id);
+    return {
+      hub_id: m.hub_id,
+      hub_name: m.hub_name,
+      total_parcels_3m: m.total_parcels_3m,
+      total_revenue_3m: m.total_revenue_3m,
+      total_4pl_cost_3m: m.total_4pl_cost_3m,
+      total_fixed_cost_3m: m.total_fixed_cost_3m,
+      total_margin_3m: m.total_margin_3m,
+      avg_margin_per_parcel: m.avg_margin_per_parcel,
+      area_breakdown: bd
+        ? { total: bd.total, fourpl: bd.fourpl, thrpl: bd.thrpl, unassigned: bd.unassigned }
+        : { total: 0, fourpl: 0, thrpl: 0, unassigned: 0 },
+    };
+  });
+
+  const userPrompt = `Hub performance summaries (last 3 months) — ${hubsForClaude.length} hubs:
+${JSON.stringify(hubsForClaude, null, 2)}
+
+Available 4PL partners and zone pricing:
 ${JSON.stringify(partners, null, 2)}
 
-Note: partner_id=3 means "Shopup Internal" (3PL, no per-parcel external cost).
 Analyze each hub and return your recommendations.`;
 
-  logger.debug('[HubSummaryAgent] Calling Claude', { hubCount: hubContexts.length });
+  // Auto-keep hubs — no Claude call needed for these
+  const autoKeepItems: HubSummaryItem[] = keepHubs.map(m => {
+    const bd = areaBreakdowns.get(m.hub_id);
+    const hasUnassigned = bd && bd.unassigned > 0;
+    return {
+      hub_id: m.hub_id,
+      hub_name: m.hub_name,
+      recommendation: hasUnassigned ? 'assign_partners' : 'keep',
+      priority: hasUnassigned ? 'medium' : 'low',
+      recommended_action: hasUnassigned
+        ? `Hub has ${bd!.unassigned} unassigned areas. Consider assigning a 4PL partner.`
+        : 'Hub is profitable. No action needed.',
+      estimated_margin_improvement_90d: 0,
+      suggested_assignments: hasUnassigned && bd
+        ? buildSuggestedAssignments('assign_partners', bd, partners)
+        : [],
+      total_areas: bd?.total ?? 0,
+      fourpl_areas: bd?.fourpl ?? 0,
+      thrpl_areas: bd?.thrpl ?? 0,
+      unassigned_areas: bd?.unassigned ?? 0,
+      avg_monthly_margin: Math.round(m.total_margin_3m / 3),
+      projected_margin_90d: m.total_margin_3m,
+      avg_margin_per_parcel: m.avg_margin_per_parcel,
+      total_parcels_3m: m.total_parcels_3m,
+      is_losing_money: false,
+    };
+  });
+
+  // If no problem hubs, skip Claude entirely
+  if (hubsForClaude.length === 0) {
+    return {
+      data: {
+        generated_at: new Date().toISOString(),
+        total_hubs: autoKeepItems.length,
+        losing_hubs: 0,
+        hubs: autoKeepItems,
+      },
+      reasoning: 'All hubs are profitable with no unassigned areas.',
+      confidence: 90,
+    };
+  }
+
+  logger.debug('[HubSummaryAgent] Calling Claude', {
+    hubCount: hubsForClaude.length,
+    promptTokensEstimate: Math.round(userPrompt.length / 4),
+  });
+
+  // Allow ~300 tokens per hub for the JSON response
+  const maxOutputTokens = Math.min(hubsForClaude.length * 350 + 500, 8192);
+
   let raw: string;
   try {
-    raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
-    logger.debug('[HubSummaryAgent] Claude raw response', { raw: raw.slice(0, 500) });
+    raw = await runPromptWithOptions(SYSTEM_PROMPT, userPrompt, maxOutputTokens);
+    logger.debug('[HubSummaryAgent] Claude response received');
   } catch (err) {
     logger.error('[HubSummaryAgent] Claude call failed', { message: (err as Error).message });
     throw err;
   }
 
-  let parsed: ClaudeHubItem[];
+  let recs: ClaudeHubRec[];
   try {
-    parsed = parseClaudeJson<ClaudeHubItem[]>(raw);
+    recs = parseClaudeJson<ClaudeHubRec[]>(raw);
   } catch (err) {
     logger.error('[HubSummaryAgent] JSON parse failed', { raw: raw.slice(0, 300), message: (err as Error).message });
     throw err;
   }
 
-  const hubs: HubSummaryItem[] = parsed.map(item => ({
-    hub_id: item.hub_id,
-    hub_name: item.hub_name,
-    recommendation: item.recommendation,
-    priority: item.priority,
-    recommended_action: item.recommended_action,
-    estimated_margin_improvement_90d: item.estimated_margin_improvement_90d,
-    suggested_assignments: item.suggested_assignments ?? [],
-    // attach margin stats from our pre-fetched data
-    ...(() => {
-      const ctx = hubContexts.find(h => h.hub_id === item.hub_id);
-      return ctx ? {
-        total_areas: ctx.total_areas,
-        fourpl_areas: ctx.fourpl_areas,
-        thrpl_areas: ctx.thrpl_areas,
-        unassigned_areas: ctx.unassigned_areas,
-        avg_monthly_margin: Math.round(ctx.total_margin_3m / 3),
-        projected_margin_90d: ctx.total_margin_3m,
-        avg_margin_per_parcel: ctx.avg_margin_per_parcel,
-        total_parcels_3m: ctx.total_parcels_3m,
-        is_losing_money: ctx.total_margin_3m < 0,
-      } : {
-        total_areas: 0, fourpl_areas: 0, thrpl_areas: 0, unassigned_areas: 0,
-        avg_monthly_margin: 0, projected_margin_90d: 0, avg_margin_per_parcel: 0,
-        total_parcels_3m: 0, is_losing_money: false,
-      };
-    })(),
-  }));
+  const claudeHubs: HubSummaryItem[] = recs.map(rec => {
+    const margin = margins.find(m => m.hub_id === rec.hub_id);
+    const bd = areaBreakdowns.get(rec.hub_id);
+
+    const suggested_assignments = bd
+      ? buildSuggestedAssignments(rec.recommendation, bd, partners)
+      : [];
+
+    return {
+      hub_id: rec.hub_id,
+      hub_name: rec.hub_name,
+      recommendation: rec.recommendation,
+      priority: rec.priority,
+      recommended_action: rec.recommended_action,
+      estimated_margin_improvement_90d: rec.estimated_margin_improvement_90d,
+      suggested_assignments,
+      total_areas: bd?.total ?? 0,
+      fourpl_areas: bd?.fourpl ?? 0,
+      thrpl_areas: bd?.thrpl ?? 0,
+      unassigned_areas: bd?.unassigned ?? 0,
+      avg_monthly_margin: margin ? Math.round(margin.total_margin_3m / 3) : 0,
+      projected_margin_90d: margin?.total_margin_3m ?? 0,
+      avg_margin_per_parcel: margin?.avg_margin_per_parcel ?? 0,
+      total_parcels_3m: margin?.total_parcels_3m ?? 0,
+      is_losing_money: (margin?.total_margin_3m ?? 0) < 0,
+    };
+  });
+
+  // Merge: problem hubs (from Claude) + auto-keep hubs, sorted by priority
+  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  const hubs: HubSummaryItem[] = [...claudeHubs, ...autoKeepItems]
+    .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
   const losing_hubs = hubs.filter(h => h.is_losing_money).length;
 
