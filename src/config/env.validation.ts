@@ -15,6 +15,10 @@ const envSchema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1),
 
+  METABASE_SESSION_TOKEN: z.string().optional(),
+  METABASE_USER: z.string().optional(),
+  METABASE_PASS: z.string().optional(),
+
   JWT_SECRET: z.string().min(32).optional(),
 
   FRONTEND_URL: z.string().url().optional(),
