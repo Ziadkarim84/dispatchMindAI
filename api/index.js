@@ -7,11 +7,9 @@ process.on('uncaughtException', (err) => {
 
 let app;
 try {
-  const { createApp } = require('../dist/app');
+  const { createApp } = require('./bundle');
   app = createApp();
-  console.log('[serverless] App created successfully');
 } catch (err) {
-  console.error('[serverless] Boot error:', err.message);
   const express = require('express');
   app = express();
   app.use((_req, res) => {
@@ -19,7 +17,4 @@ try {
   });
 }
 
-module.exports = (req, res) => {
-  console.log('[serverless] Request:', req.method, req.url);
-  app(req, res);
-};
+module.exports = app;

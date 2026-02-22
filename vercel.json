@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "npm install && node_modules/.bin/esbuild src/app.ts --bundle --platform=node --target=node18 --packages=external --outfile=api/bundle.js",
   "rewrites": [
     { "source": "/", "destination": "/api/index" },
     { "source": "/:path*", "destination": "/api/index" }
