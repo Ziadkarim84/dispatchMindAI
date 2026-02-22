@@ -1609,8 +1609,24 @@ function buildSuggestedAssignments(recommendation, breakdown, partners) {
       });
     }
   }
-  if (recommendation === "mixed_optimize") {
-    return suggestions;
+  const shouldOptimize4pl = recommendation === "shift_to_4pl" || recommendation === "mixed_optimize";
+  if (shouldOptimize4pl) {
+    const remaining = MAX_SUGGESTIONS - suggestions.length;
+    const candidates = breakdown.areas.filter((a) => a.is_4pl).slice(0, remaining);
+    for (const area of candidates) {
+      const partnerZoneId = toPartnerZoneId(area.zone_id);
+      const cheapest = cheapestPartnerForZone(partnerZoneId, partners);
+      if (!cheapest || cheapest.partner_id === area.partner_id) continue;
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: area.partner_id,
+        current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
+        recommended_partner_id: cheapest.partner_id,
+        recommended_partner_name: cheapest.partner_name,
+        reason: `Switch to cheaper 4PL for this zone (BDT ${cheapest.kg1_price}/kg)`
+      });
+    }
   }
   return suggestions;
 }

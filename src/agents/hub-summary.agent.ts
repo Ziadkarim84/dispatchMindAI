@@ -296,9 +296,32 @@ function buildSuggestedAssignments(
     }
   }
 
-  if (recommendation === 'mixed_optimize') {
-    // mixed_optimize is fully handled by the two blocks above — return early
-    return suggestions;
+  // ── Optimize between 4PL partners ──────────────────────────────────────────
+  // When areas are already using a 4PL partner but not the cheapest one for their
+  // zone, suggest switching to the cheaper alternative (e.g. Pathao → Steadfast).
+  // Applies for shift_to_4pl (where all areas may already be 4PL but expensive)
+  // and mixed_optimize. Skips areas that already use the cheapest option.
+  const shouldOptimize4pl = recommendation === 'shift_to_4pl' || recommendation === 'mixed_optimize';
+  if (shouldOptimize4pl) {
+    const remaining = MAX_SUGGESTIONS - suggestions.length;
+    const candidates = breakdown.areas
+      .filter(a => a.is_4pl)
+      .slice(0, remaining);
+
+    for (const area of candidates) {
+      const partnerZoneId = toPartnerZoneId(area.zone_id);
+      const cheapest = cheapestPartnerForZone(partnerZoneId, partners);
+      if (!cheapest || cheapest.partner_id === area.partner_id) continue; // already optimal
+      suggestions.push({
+        area_id: area.area_id,
+        area_name: area.area_name,
+        current_partner_id: area.partner_id,
+        current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
+        recommended_partner_id: cheapest.partner_id,
+        recommended_partner_name: cheapest.partner_name,
+        reason: `Switch to cheaper 4PL for this zone (BDT ${cheapest.kg1_price}/kg)`,
+      });
+    }
   }
 
   return suggestions;
