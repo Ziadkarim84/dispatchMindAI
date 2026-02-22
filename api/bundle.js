@@ -66,24 +66,28 @@ if (!parsed.success) {
 var env = parsed.data;
 
 // src/config/app.config.ts
-var ALLOWED_ORIGINS_DEV = [
+var ALLOWED_ORIGIN_PATTERNS = [
   /^https?:\/\/localhost(:\d+)?$/,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
   /\.lovable\.app$/,
   /\.lovableproject\.com$/
 ];
-var PRODUCTION_ORIGINS = [
+var PRODUCTION_EXACT_ORIGINS = [
   "https://redx.com.bd",
   ...env.FRONTEND_URL ? [env.FRONTEND_URL] : []
 ];
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (PRODUCTION_EXACT_ORIGINS.includes(origin)) return true;
+  return ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
+}
 var appConfig = {
   port: env.PORT,
   nodeEnv: env.NODE_ENV,
   apiPrefix: "/api/v1",
   cors: {
-    origin: env.NODE_ENV === "production" ? PRODUCTION_ORIGINS : (origin, cb) => {
-      if (!origin) return cb(null, true);
-      const allowed = ALLOWED_ORIGINS_DEV.some((pattern) => pattern.test(origin));
+    origin: (origin, cb) => {
+      const allowed = isOriginAllowed(origin);
       cb(allowed ? null : new Error(`CORS: origin not allowed \u2014 ${origin}`), allowed);
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
