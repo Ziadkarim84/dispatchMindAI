@@ -2,6 +2,7 @@ import { AgentResult, CostModelResult, PartnerRanking, SlaRiskResult } from '@co
 import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
 import { logger } from '@common/utils/logger.util';
+import { computeBreachProbability, computeRiskScore, getRiskThresholds } from './sla-risk.agent';
 
 const SYSTEM_PROMPT = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
 You will receive a pre-ranked list of 4PL partners with a composite_score that combines
@@ -146,6 +147,35 @@ function parseClaudeJson<T>(raw: string): T {
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
+interface NetworkSlaRow {
+  partner_id: number;
+  breach_rate: number;
+  total_deliveries: number;
+}
+
+/**
+ * Fetches network-wide SLA performance for a list of partner IDs (across all areas).
+ * Used as fallback when a partner has no area-specific delivery history.
+ */
+async function fetchNetworkSlaForPartners(partnerIds: number[]): Promise<Map<number, NetworkSlaRow>> {
+  if (partnerIds.length === 0) return new Map();
+  const rows = await query<NetworkSlaRow[]>(
+    `SELECT
+       partner_id,
+       ROUND(SUM(late_deliveries) * 100.0 / NULLIF(SUM(total_deliveries), 0), 2) AS breach_rate,
+       SUM(total_deliveries) AS total_deliveries
+     FROM dm_partner_sla_performance
+     WHERE partner_id IN (?)
+       AND (year > YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+         OR (year = YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+             AND month >= MONTH(DATE_SUB(NOW(), INTERVAL 3 MONTH))))
+     GROUP BY partner_id
+     HAVING SUM(total_deliveries) > 0`,
+    [partnerIds]
+  );
+  return new Map(rows.map(r => [r.partner_id, r]));
+}
+
 /**
  * Computes a composite 0-100 score for a partner:
  *   60% weight on SLA risk_score  (lower risk = lower score = better)
@@ -201,14 +231,43 @@ export async function runPartnerEvaluationAgent(
   const partnersWithCost    = fourplPartnersWithCost.filter(p => p.computed_total_cost !== null);
   const partnersWithoutCost = fourplPartnersWithCost.filter(p => p.computed_total_cost === null);
 
+  // For partners with no area-specific SLA history, fetch their network-wide performance
+  // as a fallback. Assign a +10 point area-unfamiliarity penalty (they haven't served
+  // this specific area before). If no data anywhere, use 45 (unrated / medium-low risk).
+  const partnerIdsWithoutAreaSla = partnersWithCost
+    .filter(p => !slaRisks.find(r => r.partner_id === p.partner_id))
+    .map(p => p.partner_id);
+  const networkSla = await fetchNetworkSlaForPartners(partnerIdsWithoutAreaSla);
+  const thresholds = getRiskThresholds(3); // standard SLA for fallback scoring
+
   // Build composite-scored, pre-ranked list for Claude
   const maxCost = Math.max(...partnersWithCost.map(p => p.computed_total_cost!), 1);
   const rankedPartners = partnersWithCost
     .map(p => {
-      const slaRisk = slaRisks.find(r => r.partner_id === p.partner_id);
-      const riskScore = slaRisk?.risk_score ?? 75; // default high risk when no SLA data
+      const areaRisk = slaRisks.find(r => r.partner_id === p.partner_id);
+      let riskScore: number;
+      let slaSource: string;
+
+      if (areaRisk) {
+        // Best case: area-specific SLA history exists
+        riskScore = areaRisk.risk_score;
+        slaSource = 'area-specific';
+      } else {
+        const networkRow = networkSla.get(p.partner_id);
+        if (networkRow) {
+          // Network-wide data available — use it with a +10 area unfamiliarity penalty
+          const bp = computeBreachProbability(networkRow.breach_rate, 3, networkRow.total_deliveries);
+          riskScore = Math.min(100, computeRiskScore(bp, thresholds) + 10);
+          slaSource = 'network-wide (+10 area penalty)';
+        } else {
+          // No data at all — unrated partner, assume medium-low risk (45)
+          riskScore = 45;
+          slaSource = 'unrated (no history)';
+        }
+      }
+
       const composite = computeCompositeScore(riskScore, p.computed_total_cost!, maxCost);
-      return { ...p, sla_risk_score: riskScore, composite_score: composite };
+      return { ...p, sla_risk_score: riskScore, sla_source: slaSource, composite_score: composite };
     })
     .sort((a, b) => a.composite_score - b.composite_score); // best first
 

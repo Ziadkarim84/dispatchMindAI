@@ -732,6 +732,24 @@ function parseClaudeJson4(raw) {
   if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
   return JSON.parse(cleaned.slice(start, end + 1));
 }
+async function fetchNetworkSlaForPartners(partnerIds) {
+  if (partnerIds.length === 0) return /* @__PURE__ */ new Map();
+  const rows = await query(
+    `SELECT
+       partner_id,
+       ROUND(SUM(late_deliveries) * 100.0 / NULLIF(SUM(total_deliveries), 0), 2) AS breach_rate,
+       SUM(total_deliveries) AS total_deliveries
+     FROM dm_partner_sla_performance
+     WHERE partner_id IN (?)
+       AND (year > YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+         OR (year = YEAR(DATE_SUB(NOW(), INTERVAL 3 MONTH))
+             AND month >= MONTH(DATE_SUB(NOW(), INTERVAL 3 MONTH))))
+     GROUP BY partner_id
+     HAVING SUM(total_deliveries) > 0`,
+    [partnerIds]
+  );
+  return new Map(rows.map((r) => [r.partner_id, r]));
+}
 function computeCompositeScore(riskScore, totalCost, maxCost) {
   const normalisedCost = maxCost > 0 ? totalCost / maxCost * 100 : 0;
   return Math.round(0.6 * riskScore + 0.4 * normalisedCost);
@@ -769,12 +787,30 @@ async function runPartnerEvaluationAgent(areaId, slaRisks, costModels, weightGra
   });
   const partnersWithCost = fourplPartnersWithCost.filter((p) => p.computed_total_cost !== null);
   const partnersWithoutCost = fourplPartnersWithCost.filter((p) => p.computed_total_cost === null);
+  const partnerIdsWithoutAreaSla = partnersWithCost.filter((p) => !slaRisks.find((r) => r.partner_id === p.partner_id)).map((p) => p.partner_id);
+  const networkSla = await fetchNetworkSlaForPartners(partnerIdsWithoutAreaSla);
+  const thresholds = getRiskThresholds(3);
   const maxCost = Math.max(...partnersWithCost.map((p) => p.computed_total_cost), 1);
   const rankedPartners = partnersWithCost.map((p) => {
-    const slaRisk = slaRisks.find((r) => r.partner_id === p.partner_id);
-    const riskScore = slaRisk?.risk_score ?? 75;
+    const areaRisk = slaRisks.find((r) => r.partner_id === p.partner_id);
+    let riskScore;
+    let slaSource;
+    if (areaRisk) {
+      riskScore = areaRisk.risk_score;
+      slaSource = "area-specific";
+    } else {
+      const networkRow = networkSla.get(p.partner_id);
+      if (networkRow) {
+        const bp = computeBreachProbability(networkRow.breach_rate, 3, networkRow.total_deliveries);
+        riskScore = Math.min(100, computeRiskScore(bp, thresholds) + 10);
+        slaSource = "network-wide (+10 area penalty)";
+      } else {
+        riskScore = 45;
+        slaSource = "unrated (no history)";
+      }
+    }
     const composite = computeCompositeScore(riskScore, p.computed_total_cost, maxCost);
-    return { ...p, sla_risk_score: riskScore, composite_score: composite };
+    return { ...p, sla_risk_score: riskScore, sla_source: slaSource, composite_score: composite };
   }).sort((a, b) => a.composite_score - b.composite_score);
   const userPrompt = `Area ID: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}

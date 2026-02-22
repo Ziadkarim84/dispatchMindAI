@@ -50,7 +50,7 @@ async function fetchPartnerSlaStats(areaId: number): Promise<PartnerSlaStats[]> 
  * Returns breach-rate thresholds for LOW/MEDIUM/HIGH based on the merchant's
  * required SLA window. Tighter SLAs mean fewer late deliveries are acceptable.
  */
-function getRiskThresholds(slaDays: number): { low: number; medium: number } {
+export function getRiskThresholds(slaDays: number): { low: number; medium: number } {
   if (slaDays <= 1) return { low: 5,  medium: 15 }; // same/next-day — very tight
   if (slaDays === 2) return { low: 10, medium: 25 }; // 2-day
   if (slaDays <= 3) return { low: 15, medium: 35 }; // standard (default hub SLA)
@@ -78,7 +78,7 @@ function parseClaudeJson<T>(raw: string): T {
  * - Looser SLA (slaDays > 3): reduce by 30% (most partners can meet relaxed targets)
  * - Low sample size (<30 deliveries): add uncertainty penalty up to 20 points
  */
-function computeBreachProbability(
+export function computeBreachProbability(
   historicalBreachRate: number,
   merchantSlaDays: number,
   totalDeliveries: number,
@@ -108,7 +108,7 @@ function computeBreachProbability(
  *   low – medium         → 30–60 (MEDIUM)
  *   medium – 100         → 60–100 (HIGH)
  */
-function computeRiskScore(
+export function computeRiskScore(
   breachProbability: number,
   thresholds: { low: number; medium: number },
 ): number {
