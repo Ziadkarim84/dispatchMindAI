@@ -91,11 +91,19 @@ export async function getDispatchRecommendation(
   const threePlModel = costResult.data.find(c => c.scenario === '3PL');
   const fourPlMarginDelta = fourPlModel?.margin_delta_vs_current ?? 0;
   const slaRiskScore = partnerResult.data.sla_risk_score;
+  const optimalPartnerId = partnerResult.data.optimal_partner_id;
 
+  // If the hub has no historical cost data, all margin deltas are 0 (unknown, not breakeven).
+  // Skip the margin check in this case — rely on partner evaluation + SLA risk alone.
+  const hasHubCostData = costResult.data.some(c => c.avg_revenue_per_parcel > 0);
+  const marginOk = hasHubCostData ? fourPlMarginDelta > 0 : true;
+
+  // optimal_partner_id === 0 means no partner found; === 3 means Claude chose Shopup Internal (3PL)
   const use4PL =
-    fourPlMarginDelta > 0 &&
+    marginOk &&
     slaRiskScore < 60 &&
-    partnerResult.data.optimal_partner_id !== 0;
+    optimalPartnerId !== 0 &&
+    optimalPartnerId !== 3;
 
   const dispatchType: '3PL' | '4PL' = use4PL ? '4PL' : '3PL';
   const partnerName = use4PL
