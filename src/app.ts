@@ -22,7 +22,10 @@ function createApp(): Application {
   // Request logging
   app.use(requestLoggerMiddleware);
 
-  // Health check
+  // Root + health check
+  app.get('/', (_req, res) => {
+    res.status(200).json({ api: 'DispatchMindAI', version: '1.0.0', status: 'ok' });
+  });
   app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
   });
