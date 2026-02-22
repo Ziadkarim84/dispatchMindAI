@@ -35,11 +35,19 @@ export async function runExecutiveSummaryAgent(
   const recommendedCost = costModels.find(c => c.scenario === (dispatchType === '4PL' ? '4PL' : '3PL'));
   const topRisk = slaRisks.sort((a, b) => b.risk_score - a.risk_score)[0];
 
+  // For 3PL decisions the partner is always Shopup Internal, not the 4PL candidate
+  const resolvedPartner = dispatchType === '4PL'
+    ? partnerRanking.optimal_partner_name
+    : 'Shopup (Internal)';
+  const resolvedBackup = dispatchType === '4PL'
+    ? (partnerRanking.backup_partner_name ?? 'None')
+    : 'N/A';
+
   const userPrompt = `Hub: ${hubId} | Area: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}, required SLA: ${slaDays} day${slaDays !== 1 ? 's' : ''}
 Dispatch decision: ${dispatchType}
-Recommended partner: ${partnerRanking.optimal_partner_name} (confidence: ${partnerRanking.confidence}%)
-Backup partner: ${partnerRanking.backup_partner_name ?? 'None'}
+Recommended partner: ${resolvedPartner} (confidence: ${partnerRanking.confidence}%)
+Backup partner: ${resolvedBackup}
 
 Volume forecast:
 - Daily avg: ${volumeForecast.predicted_daily_avg} parcels/day
