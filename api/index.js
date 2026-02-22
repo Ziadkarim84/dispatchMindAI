@@ -1,4 +1,3 @@
-// Prevent process crashes in serverless — log the error instead of exiting
 process.on('unhandledRejection', (reason) => {
   console.error('[serverless] Unhandled rejection:', reason);
 });
@@ -10,7 +9,9 @@ let app;
 try {
   const { createApp } = require('../dist/app');
   app = createApp();
+  console.log('[serverless] App created successfully');
 } catch (err) {
+  console.error('[serverless] Boot error:', err.message);
   const express = require('express');
   app = express();
   app.use((_req, res) => {
@@ -18,4 +19,7 @@ try {
   });
 }
 
-module.exports = app;
+module.exports = (req, res) => {
+  console.log('[serverless] Request:', req.method, req.url);
+  app(req, res);
+};
