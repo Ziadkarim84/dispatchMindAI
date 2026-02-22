@@ -80,7 +80,8 @@ async function fetchAvailablePartners(areaId: number): Promise<AvailablePartner[
        END
        AND pp.status = 'active'
      WHERE ap.AREA_ID = ?
-       AND ap.STATUS = 'active'`,
+       AND ap.STATUS = 'active'
+       AND dp.ID != 3`,
     [areaId]
   );
 }
