@@ -86,24 +86,23 @@ export async function getDispatchRecommendation(
     parcel_value
   );
 
-  // Determine dispatch type: prefer 4PL if margin uplift exists and SLA risk is acceptable
+  // Determine dispatch type
   const fourPlModel = costResult.data.find(c => c.scenario === '4PL');
   const threePlModel = costResult.data.find(c => c.scenario === '3PL');
-  const fourPlMarginDelta = fourPlModel?.margin_delta_vs_current ?? 0;
   const slaRiskScore = partnerResult.data.sla_risk_score;
   const optimalPartnerId = partnerResult.data.optimal_partner_id;
 
-  // If the hub has no historical cost data, all margin deltas are 0 (unknown, not breakeven).
-  // Skip the margin check in this case — rely on partner evaluation + SLA risk alone.
-  const hasHubCostData = costResult.data.some(c => c.avg_revenue_per_parcel > 0);
-  const marginOk = hasHubCostData ? fourPlMarginDelta > 0 : true;
-
-  // optimal_partner_id === 0 means no partner found; === 3 means Claude chose Shopup Internal (3PL)
+  // Per-parcel dispatch: prefer 4PL when a valid partner exists with acceptable SLA risk.
+  // The cost modeling agent is a hub-level strategic signal (used in executive summary),
+  // not a per-parcel gate — 3PL always shows better hub margin since it has no per-parcel
+  // fee, which would permanently block 4PL regardless of partner quality or SLA.
+  // optimal_partner_id === 0 means no partner found; === 3 means Claude chose Shopup Internal (3PL).
   const use4PL =
-    marginOk &&
     slaRiskScore < 60 &&
     optimalPartnerId !== 0 &&
     optimalPartnerId !== 3;
+
+  logger.info('Dispatch decision factors', { slaRiskScore, optimalPartnerId, use4PL });
 
   const dispatchType: '3PL' | '4PL' = use4PL ? '4PL' : '3PL';
   const partnerName = use4PL

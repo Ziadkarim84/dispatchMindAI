@@ -77,7 +77,22 @@ function parseClaudeJson<T>(raw: string): T {
   if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
   const openChar = cleaned[start];
   const closeChar = openChar === '{' ? '}' : ']';
-  const end = cleaned.lastIndexOf(closeChar);
+
+  // Bracket-depth matching to find the correct closing bracket (avoids lastIndexOf
+  // finding brackets in trailing text/markdown that Claude sometimes appends)
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    else if (ch === closeChar && --depth === 0) { end = i; break; }
+  }
   if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
