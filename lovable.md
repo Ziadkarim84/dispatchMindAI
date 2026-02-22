@@ -747,19 +747,23 @@ The sidebar should now have 5 items (remove Partners):
 ### Change 3 — Show dispatch_reason in result card
 
 ```
-In the AI Dispatch Recommender result card, add a "Decision Reason" row below the decision badge.
+In the Dispatch page result card, find the decision badge component (the one showing
+"3PL – Internal Fleet" or "4PL – External Partner").
 
-The dispatch API now returns a dispatch_reason field (string) in the response.
+Immediately below that badge, add this block:
 
-Show it as a small info box directly under the "3PL – Shopup Internal" or "4PL – [partner]" badge:
-- Icon: info circle (lucide)
-- Label: "Why this decision?"
-- Text: the dispatch_reason value from the API
-- Style: muted/dimmed text, small font, subtle border-left accent (blue for 4PL, grey for 3PL)
+<div className="flex items-start gap-2 mt-3 p-3 rounded-md bg-white/5 border-l-2 border-blue-500/50">
+  <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+  <div>
+    <p className="text-xs font-medium text-blue-300 mb-0.5">Why this decision?</p>
+    <p className="text-xs text-slate-400 leading-relaxed">{result.dispatch_reason}</p>
+  </div>
+</div>
 
-Example values:
-- 3PL: "3PL selected (Shopup Internal): SLA risk too high: 75/100 (threshold 60). Best available 4PL would be Steadfast if risk/margin conditions improve"
-- 4PL: "4PL selected: Steadfast — SLA risk 32/100 (within threshold), margin delta +12.50 BDT/parcel vs 3PL"
+Use border-blue-500/50 when result.type === "4PL", and border-slate-500/50 when result.type === "3PL".
+
+Make sure Info is imported from lucide-react.
+The dispatch_reason field is already in the API response — just read it from the existing result object.
 
 Also update the DispatchResult type in src/lib/api.ts to add:
   dispatch_reason: string;
