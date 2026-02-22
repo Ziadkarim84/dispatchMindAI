@@ -3,13 +3,19 @@ import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
 
 const SYSTEM_PROMPT = `You are a logistics cost and margin analyst for RedX, a courier company in Bangladesh.
-You will receive per-hub revenue data, 4PL partner costs, and fixed monthly hub costs.
+You will receive per-hub revenue data, 4PL partner costs, fixed monthly hub costs, and the Shopup internal
+variable cost per parcel (fuel, rider commission, sorting labour — provided in the input).
 Calculate contribution margins for three dispatch scenarios: 3PL (internal RedX), 4PL (external partner), and Hybrid.
 
 Margin formula per parcel:
-- Revenue  = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered statuses) OR SHOPUP_RETURN_CHARGE (shopup-returning / shopup-returned)
-- 4PL Cost = average charge paid to external partner per parcel
-- Fixed Cost per parcel = monthly fixed costs / monthly parcel volume
+- Revenue         = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered) OR SHOPUP_RETURN_CHARGE (returned)
+- 3PL Variable    = shopup_internal_cost_per_parcel (internal handling, fuel, rider wages)
+- 4PL Cost        = average charge paid to external partner per parcel
+- Fixed Cost/parcel = monthly fixed costs / monthly parcel volume
+- 3PL margin      = Revenue - 3PL_Variable - Fixed_Cost_per_parcel
+- 4PL margin      = Revenue - 4PL_Cost - Fixed_Cost_per_parcel
+- Hybrid margin   = Revenue - (0.5 × 3PL_Variable + 0.5 × 4PL_Cost) - Fixed_Cost_per_parcel
+- margin_delta_vs_current: positive means this scenario is MORE profitable than current baseline
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -106,8 +112,13 @@ export async function runCostModelingAgent(
     fetchHubFixedCosts(hubId),
   ]);
 
+  // Shopup internal variable cost per parcel: covers rider wages, fuel, sorting labour.
+  // Configurable via SHOPUP_INTERNAL_COST_PER_PARCEL env var (default 20 BDT).
+  const shopupInternalCostPerParcel = Number(process.env.SHOPUP_INTERNAL_COST_PER_PARCEL ?? 20);
+
   const userPrompt = `Hub ID: ${hubId}
 Monthly parcel volume (forecast): ${volumeForecast.predicted_daily_avg * 30} parcels/month
+Shopup internal variable cost per parcel: BDT ${shopupInternalCostPerParcel} (rider wages, fuel, sorting)
 
 Pre-aggregated hub margin summary (last 3 months):
 ${marginSummary ? JSON.stringify(marginSummary, null, 2) : 'No aggregated data available — assume 0 revenue and costs'}
@@ -116,8 +127,7 @@ Hub fixed monthly costs (BDT):
 ${fixedCosts ? JSON.stringify(fixedCosts, null, 2) : 'No fixed cost data available — assume 0'}
 
 Calculate the contribution margin per parcel for 3PL, 4PL, and Hybrid scenarios.
-For Hybrid assume 50% 3PL + 50% 4PL split.
-margin_delta_vs_current should compare each scenario vs the current 3PL baseline.`;
+Use the formulas in the system prompt. margin_delta_vs_current compares each scenario vs the 3PL baseline.`;
 
   const raw = await runPrompt(SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<Array<{

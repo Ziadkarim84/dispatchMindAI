@@ -170,12 +170,17 @@ async function populateHubContributionMargin(conn: mysql.Connection): Promise<vo
       updated_at        = NOW()
   `);
 
-  // Compute avg_margin_per_parcel = (revenue - 4pl_cost - fixed_cost) / total_parcels
+  // Compute avg_margin_per_parcel = (revenue - 4pl_cost - fixed_cost) / revenue_parcels
+  // Use delivered + returned as denominator — only parcels that generated revenue count.
+  // Pending/cancelled parcels still consume hub capacity (fixed costs apply) but
+  // dividing by all parcels would suppress the true per-completed-parcel margin.
   await conn.query(`
     UPDATE dm_hub_contribution_margin
     SET avg_margin_per_parcel = CASE
-      WHEN total_parcels > 0
-        THEN ROUND((total_revenue - total_4pl_cost - total_fixed_cost) / total_parcels, 2)
+      WHEN (delivered_parcels + returned_parcels) > 0
+        THEN ROUND(
+          (total_revenue - total_4pl_cost - total_fixed_cost)
+          / (delivered_parcels + returned_parcels), 2)
       ELSE 0
     END
   `);

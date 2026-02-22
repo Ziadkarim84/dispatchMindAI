@@ -92,13 +92,16 @@ export async function getDispatchRecommendation(
   const slaRiskScore = partnerResult.data.sla_risk_score;
   const optimalPartnerId = partnerResult.data.optimal_partner_id;
 
-  // Per-parcel dispatch: prefer 4PL when a valid partner exists with acceptable SLA risk.
-  // The cost modeling agent is a hub-level strategic signal (used in executive summary),
-  // not a per-parcel gate — 3PL always shows better hub margin since it has no per-parcel
-  // fee, which would permanently block 4PL regardless of partner quality or SLA.
+  // Use 4PL only when ALL three conditions hold:
+  //  1. 4PL margin_delta_vs_current > 0 — 4PL is genuinely more profitable than 3PL
+  //     (meaningful now that 3PL models a real variable cost via SHOPUP_INTERNAL_COST_PER_PARCEL)
+  //  2. SLA risk score < 60 — partner breach probability is acceptable
+  //  3. A valid external partner was selected (positive ID, not Shopup Internal ID=3)
   // Guard: Claude returns null for optimal_partner_id when preferring Shopup Internal —
   // null passes !== 0 and !== 3 in JS, so we explicitly require a positive integer.
+  const fourPlMarginDelta = fourPlModel?.margin_delta_vs_current ?? -1;
   const use4PL =
+    fourPlMarginDelta > 0 &&
     slaRiskScore < 60 &&
     typeof optimalPartnerId === 'number' &&
     optimalPartnerId > 0 &&

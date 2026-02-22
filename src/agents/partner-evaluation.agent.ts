@@ -4,16 +4,16 @@ import { runPrompt } from './base.agent';
 import { logger } from '@common/utils/logger.util';
 
 const SYSTEM_PROMPT = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
-You will receive the available external (4PL) partners for an area along with their SLA risk scores
-and the computed all-in cost for this specific parcel (delivery charge + COD fee).
-Select the optimal 4PL partner and a backup from the provided list only.
+You will receive a pre-ranked list of 4PL partners with a composite_score that combines
+SLA risk (60% weight) and cost (40% weight). Lower score = better partner.
 
-Cost context:
-- "computed_delivery_charge": the exact charge for this parcel's weight in this zone
-- "computed_cod_fee": COD fee = parcel_value × cod_percentage / 100
-- "computed_total_cost": delivery_charge + cod_fee — this is the true per-parcel cost
-- Prefer partners with lower total_cost AND lower SLA risk
-- If no partners are available or all have unacceptably high SLA risk, return optimal_partner_id: 0
+Selection guidance:
+- The top-ranked partner (lowest composite_score) is typically optimal
+- Override the ranking only if you have specific operational reasons (e.g., partner known to have
+  capacity issues, pricing mismatch, or an operational anomaly not reflected in historical data)
+- backup_partner should be the second-ranked partner by composite_score
+- If no partners are available or the top partner has sla_risk_score > 80, return optimal_partner_id: 0
+- sla_risk_score in your response should reflect the selected partner's risk level
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
@@ -23,7 +23,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
   "backup_partner_id": <number | null>,
   "backup_partner_name": "<string | null>",
   "sla_risk_score": <0-100>,
-  "reasoning": "<brief explanation>"
+  "reasoning": "<brief — note if pre-computed ranking was used as-is or overridden>"
 }`;
 
 interface AvailablePartner {
@@ -146,6 +146,22 @@ function parseClaudeJson<T>(raw: string): T {
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
+/**
+ * Computes a composite 0-100 score for a partner:
+ *   60% weight on SLA risk_score  (lower risk = lower score = better)
+ *   40% weight on normalised cost (lower cost relative to max = lower score = better)
+ *
+ * Lower composite_score = better partner overall.
+ */
+function computeCompositeScore(
+  riskScore: number,
+  totalCost: number,
+  maxCost: number,
+): number {
+  const normalisedCost = maxCost > 0 ? (totalCost / maxCost) * 100 : 0;
+  return Math.round(0.60 * riskScore + 0.40 * normalisedCost);
+}
+
 export async function runPartnerEvaluationAgent(
   areaId: number,
   slaRisks: SlaRiskResult[],
@@ -185,24 +201,32 @@ export async function runPartnerEvaluationAgent(
   const partnersWithCost    = fourplPartnersWithCost.filter(p => p.computed_total_cost !== null);
   const partnersWithoutCost = fourplPartnersWithCost.filter(p => p.computed_total_cost === null);
 
+  // Build composite-scored, pre-ranked list for Claude
+  const maxCost = Math.max(...partnersWithCost.map(p => p.computed_total_cost!), 1);
+  const rankedPartners = partnersWithCost
+    .map(p => {
+      const slaRisk = slaRisks.find(r => r.partner_id === p.partner_id);
+      const riskScore = slaRisk?.risk_score ?? 75; // default high risk when no SLA data
+      const composite = computeCompositeScore(riskScore, p.computed_total_cost!, maxCost);
+      return { ...p, sla_risk_score: riskScore, composite_score: composite };
+    })
+    .sort((a, b) => a.composite_score - b.composite_score); // best first
+
   const userPrompt = `Area ID: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}
 
-4PL partners — computed cost for this parcel (delivery charge + COD fee):
-${JSON.stringify(partnersWithCost, null, 2)}
+Pre-ranked 4PL partners (composite_score = 60% SLA risk + 40% cost, lower = better):
+${JSON.stringify(rankedPartners, null, 2)}
 
-Partners without pricing data (use SLA risk scores only):
+Partners without pricing data (excluded from ranking):
 ${JSON.stringify(partnersWithoutCost, null, 2)}
 
-SLA risk assessment per partner (last 90 days):
-${JSON.stringify(slaRisks, null, 2)}
-
-Hub-level cost modeling (3PL vs 4PL vs Hybrid margin scenarios):
+Hub-level cost modeling (strategic context):
 ${JSON.stringify(costModels, null, 2)}
 
-Select the optimal 4PL partner and a backup from the list above only.
-Prioritize: low SLA risk first, then lowest computed_total_cost.
-If no partner is suitable (all SLA risk > 80 or no partners listed), return optimal_partner_id: 0.`;
+Select from the ranked list above. The lowest composite_score partner is recommended unless
+you have operational reasons to override. Return optimal_partner_id: 0 only if the top
+partner has sla_risk_score > 80 or no partners are listed.`;
 
   logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: availablePartners.length + 1 });
   let raw: string;

@@ -326,13 +326,19 @@ Based on this data, forecast the volume for the next 90 days.`;
 
 // src/agents/cost-modeling.agent.ts
 var SYSTEM_PROMPT2 = `You are a logistics cost and margin analyst for RedX, a courier company in Bangladesh.
-You will receive per-hub revenue data, 4PL partner costs, and fixed monthly hub costs.
+You will receive per-hub revenue data, 4PL partner costs, fixed monthly hub costs, and the Shopup internal
+variable cost per parcel (fuel, rider commission, sorting labour \u2014 provided in the input).
 Calculate contribution margins for three dispatch scenarios: 3PL (internal RedX), 4PL (external partner), and Hybrid.
 
 Margin formula per parcel:
-- Revenue  = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered statuses) OR SHOPUP_RETURN_CHARGE (shopup-returning / shopup-returned)
-- 4PL Cost = average charge paid to external partner per parcel
-- Fixed Cost per parcel = monthly fixed costs / monthly parcel volume
+- Revenue         = SHOPUP_CHARGE + SHOPUP_COD_CHARGE (delivered) OR SHOPUP_RETURN_CHARGE (returned)
+- 3PL Variable    = shopup_internal_cost_per_parcel (internal handling, fuel, rider wages)
+- 4PL Cost        = average charge paid to external partner per parcel
+- Fixed Cost/parcel = monthly fixed costs / monthly parcel volume
+- 3PL margin      = Revenue - 3PL_Variable - Fixed_Cost_per_parcel
+- 4PL margin      = Revenue - 4PL_Cost - Fixed_Cost_per_parcel
+- Hybrid margin   = Revenue - (0.5 \xD7 3PL_Variable + 0.5 \xD7 4PL_Cost) - Fixed_Cost_per_parcel
+- margin_delta_vs_current: positive means this scenario is MORE profitable than current baseline
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -418,8 +424,10 @@ async function runCostModelingAgent(hubId, volumeForecast) {
     fetchHubMarginSummary(hubId),
     fetchHubFixedCosts(hubId)
   ]);
+  const shopupInternalCostPerParcel = Number(process.env.SHOPUP_INTERNAL_COST_PER_PARCEL ?? 20);
   const userPrompt = `Hub ID: ${hubId}
 Monthly parcel volume (forecast): ${volumeForecast.predicted_daily_avg * 30} parcels/month
+Shopup internal variable cost per parcel: BDT ${shopupInternalCostPerParcel} (rider wages, fuel, sorting)
 
 Pre-aggregated hub margin summary (last 3 months):
 ${marginSummary ? JSON.stringify(marginSummary, null, 2) : "No aggregated data available \u2014 assume 0 revenue and costs"}
@@ -428,8 +436,7 @@ Hub fixed monthly costs (BDT):
 ${fixedCosts ? JSON.stringify(fixedCosts, null, 2) : "No fixed cost data available \u2014 assume 0"}
 
 Calculate the contribution margin per parcel for 3PL, 4PL, and Hybrid scenarios.
-For Hybrid assume 50% 3PL + 50% 4PL split.
-margin_delta_vs_current should compare each scenario vs the current 3PL baseline.`;
+Use the formulas in the system prompt. margin_delta_vs_current compares each scenario vs the 3PL baseline.`;
   const raw = await runPrompt(SYSTEM_PROMPT2, userPrompt);
   const parsed2 = parseClaudeJson2(raw);
   return {
@@ -449,13 +456,14 @@ margin_delta_vs_current should compare each scenario vs the current 3PL baseline
 
 // src/agents/sla-risk.agent.ts
 var BASE_SYSTEM_PROMPT = `You are an SLA risk analyst for RedX, a courier company in Bangladesh.
-You will receive historical delivery performance data per partner for a specific area,
-plus the merchant's required delivery SLA and the corresponding risk thresholds.
-Analyze breach rates and return a risk assessment for each partner.
+You will receive historical delivery performance data per partner for a specific area.
+Each partner entry already includes pre-computed breach_probability and risk_score values
+derived from historical data and the merchant's SLA requirement.
 
-Important: the historical breach_rate is calculated against the hub's standard SLA_TARGET (typically 3 days).
-If the merchant's required SLA is shorter than 3 days, the true breach probability will be higher than the
-historical rate \u2014 adjust upward proportionally. If longer, adjust downward slightly.
+Your role is to validate these computed scores and apply any operational context that
+the raw numbers cannot capture (e.g., partner recently expanded capacity, new route opened,
+known operational issues). If the data is sufficient and no anomalies exist, use the
+provided computed values directly.
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -466,7 +474,7 @@ Return ONLY a valid JSON array (no markdown, no explanation):
     "breach_probability": <0-100>,
     "risk_score": <0-100>,
     "risk_level": "LOW" | "MEDIUM" | "HIGH",
-    "reasoning": "<brief>"
+    "reasoning": "<brief \u2014 note if computed values were used as-is or adjusted>"
   }
 ]`;
 async function fetchPartnerSlaStats(areaId) {
@@ -505,6 +513,30 @@ function parseClaudeJson3(raw) {
   if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
   return JSON.parse(cleaned.slice(start, end + 1));
 }
+function computeBreachProbability(historicalBreachRate, merchantSlaDays, totalDeliveries, hubSlaDays = 3) {
+  let adjusted = historicalBreachRate;
+  if (merchantSlaDays < hubSlaDays) {
+    adjusted = Math.min(100, historicalBreachRate * (hubSlaDays / merchantSlaDays));
+  } else if (merchantSlaDays > hubSlaDays) {
+    adjusted = historicalBreachRate * 0.7;
+  }
+  const samplePenalty = totalDeliveries < 30 ? Math.round(20 * (1 - totalDeliveries / 30)) : 0;
+  return Math.min(100, Math.round(adjusted + samplePenalty));
+}
+function computeRiskScore(breachProbability, thresholds) {
+  if (breachProbability <= thresholds.low) {
+    return Math.round(breachProbability / Math.max(thresholds.low, 1) * 30);
+  } else if (breachProbability <= thresholds.medium) {
+    const ratio = (breachProbability - thresholds.low) / Math.max(thresholds.medium - thresholds.low, 1);
+    return Math.round(30 + ratio * 30);
+  } else {
+    const ratio = Math.min(
+      1,
+      (breachProbability - thresholds.medium) / Math.max(100 - thresholds.medium, 1)
+    );
+    return Math.round(60 + ratio * 40);
+  }
+}
 async function runSlaRiskAgent(areaId, slaDays = 3) {
   logger.debug("[SlaRiskAgent] Fetching partner SLA stats", { areaId });
   let stats;
@@ -528,16 +560,31 @@ async function runSlaRiskAgent(areaId, slaDays = 3) {
     };
   }
   const thresholds = getRiskThresholds(slaDays);
+  const statsWithComputed = stats.map((s) => ({
+    ...s,
+    computed_breach_probability: computeBreachProbability(
+      Number(s.breach_rate),
+      slaDays,
+      Number(s.total_deliveries)
+    ),
+    computed_risk_score: computeRiskScore(
+      computeBreachProbability(Number(s.breach_rate), slaDays, Number(s.total_deliveries)),
+      thresholds
+    )
+  }));
   const systemPrompt = `${BASE_SYSTEM_PROMPT}
-Risk thresholds for this request (merchant SLA = ${slaDays} day${slaDays !== 1 ? "s" : ""}):
-breach_probability < ${thresholds.low}% \u2192 LOW, ${thresholds.low}-${thresholds.medium}% \u2192 MEDIUM, > ${thresholds.medium}% \u2192 HIGH.`;
+Risk thresholds (merchant SLA = ${slaDays} day${slaDays !== 1 ? "s" : ""}):
+breach_probability < ${thresholds.low}% \u2192 LOW | ${thresholds.low}\u2013${thresholds.medium}% \u2192 MEDIUM | > ${thresholds.medium}% \u2192 HIGH.`;
   const userPrompt = `Area ID: ${areaId}
-Merchant required SLA: ${slaDays} day${slaDays !== 1 ? "s" : ""} (hub standard SLA is typically 3 days)
-Delivery performance per partner (last 90 days):
-${JSON.stringify(stats, null, 2)}
+Merchant required SLA: ${slaDays} day${slaDays !== 1 ? "s" : ""} (hub standard SLA: 3 days)
 
-Assess breach probability and risk score for each partner in this area.
-Adjust breach_probability upward if the merchant SLA is shorter than the hub's 3-day standard.`;
+Partner performance data with pre-computed scores (last 90 days):
+${JSON.stringify(statsWithComputed, null, 2)}
+
+The computed_breach_probability and computed_risk_score have been calculated mathematically
+from historical data, adjusting for the merchant's SLA requirement and sample size.
+Validate these scores and return them as breach_probability/risk_score unless you have
+specific operational context that warrants an adjustment.`;
   logger.debug("[SlaRiskAgent] Calling Claude", { slaDays, thresholds });
   let raw;
   try {
@@ -573,16 +620,16 @@ Adjust breach_probability upward if the merchant SLA is shorter than the hub's 3
 
 // src/agents/partner-evaluation.agent.ts
 var SYSTEM_PROMPT3 = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
-You will receive the available external (4PL) partners for an area along with their SLA risk scores
-and the computed all-in cost for this specific parcel (delivery charge + COD fee).
-Select the optimal 4PL partner and a backup from the provided list only.
+You will receive a pre-ranked list of 4PL partners with a composite_score that combines
+SLA risk (60% weight) and cost (40% weight). Lower score = better partner.
 
-Cost context:
-- "computed_delivery_charge": the exact charge for this parcel's weight in this zone
-- "computed_cod_fee": COD fee = parcel_value \xD7 cod_percentage / 100
-- "computed_total_cost": delivery_charge + cod_fee \u2014 this is the true per-parcel cost
-- Prefer partners with lower total_cost AND lower SLA risk
-- If no partners are available or all have unacceptably high SLA risk, return optimal_partner_id: 0
+Selection guidance:
+- The top-ranked partner (lowest composite_score) is typically optimal
+- Override the ranking only if you have specific operational reasons (e.g., partner known to have
+  capacity issues, pricing mismatch, or an operational anomaly not reflected in historical data)
+- backup_partner should be the second-ranked partner by composite_score
+- If no partners are available or the top partner has sla_risk_score > 80, return optimal_partner_id: 0
+- sla_risk_score in your response should reflect the selected partner's risk level
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
@@ -592,7 +639,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
   "backup_partner_id": <number | null>,
   "backup_partner_name": "<string | null>",
   "sla_risk_score": <0-100>,
-  "reasoning": "<brief explanation>"
+  "reasoning": "<brief \u2014 note if pre-computed ranking was used as-is or overridden>"
 }`;
 async function fetchAvailablePartners(areaId) {
   return query(
@@ -685,6 +732,10 @@ function parseClaudeJson4(raw) {
   if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
   return JSON.parse(cleaned.slice(start, end + 1));
 }
+function computeCompositeScore(riskScore, totalCost, maxCost) {
+  const normalisedCost = maxCost > 0 ? totalCost / maxCost * 100 : 0;
+  return Math.round(0.6 * riskScore + 0.4 * normalisedCost);
+}
 async function runPartnerEvaluationAgent(areaId, slaRisks, costModels, weightGrams, parcelValue) {
   logger.debug("[PartnerEvaluationAgent] Fetching available partners with pricing", { areaId, weightGrams, parcelValue });
   let availablePartners;
@@ -718,24 +769,28 @@ async function runPartnerEvaluationAgent(areaId, slaRisks, costModels, weightGra
   });
   const partnersWithCost = fourplPartnersWithCost.filter((p) => p.computed_total_cost !== null);
   const partnersWithoutCost = fourplPartnersWithCost.filter((p) => p.computed_total_cost === null);
+  const maxCost = Math.max(...partnersWithCost.map((p) => p.computed_total_cost), 1);
+  const rankedPartners = partnersWithCost.map((p) => {
+    const slaRisk = slaRisks.find((r) => r.partner_id === p.partner_id);
+    const riskScore = slaRisk?.risk_score ?? 75;
+    const composite = computeCompositeScore(riskScore, p.computed_total_cost, maxCost);
+    return { ...p, sla_risk_score: riskScore, composite_score: composite };
+  }).sort((a, b) => a.composite_score - b.composite_score);
   const userPrompt = `Area ID: ${areaId}
 Parcel: ${weightGrams}g, value BDT ${parcelValue}
 
-4PL partners \u2014 computed cost for this parcel (delivery charge + COD fee):
-${JSON.stringify(partnersWithCost, null, 2)}
+Pre-ranked 4PL partners (composite_score = 60% SLA risk + 40% cost, lower = better):
+${JSON.stringify(rankedPartners, null, 2)}
 
-Partners without pricing data (use SLA risk scores only):
+Partners without pricing data (excluded from ranking):
 ${JSON.stringify(partnersWithoutCost, null, 2)}
 
-SLA risk assessment per partner (last 90 days):
-${JSON.stringify(slaRisks, null, 2)}
-
-Hub-level cost modeling (3PL vs 4PL vs Hybrid margin scenarios):
+Hub-level cost modeling (strategic context):
 ${JSON.stringify(costModels, null, 2)}
 
-Select the optimal 4PL partner and a backup from the list above only.
-Prioritize: low SLA risk first, then lowest computed_total_cost.
-If no partner is suitable (all SLA risk > 80 or no partners listed), return optimal_partner_id: 0.`;
+Select from the ranked list above. The lowest composite_score partner is recommended unless
+you have operational reasons to override. Return optimal_partner_id: 0 only if the top
+partner has sla_risk_score > 80 or no partners are listed.`;
   logger.debug("[PartnerEvaluationAgent] Calling Claude", { areaId, partnerCount: availablePartners.length + 1 });
   let raw;
   try {
@@ -876,7 +931,8 @@ async function getDispatchRecommendation(input) {
   const threePlModel = costResult.data.find((c) => c.scenario === "3PL");
   const slaRiskScore = partnerResult.data.sla_risk_score;
   const optimalPartnerId = partnerResult.data.optimal_partner_id;
-  const use4PL = slaRiskScore < 60 && typeof optimalPartnerId === "number" && optimalPartnerId > 0 && optimalPartnerId !== 3;
+  const fourPlMarginDelta = fourPlModel?.margin_delta_vs_current ?? -1;
+  const use4PL = fourPlMarginDelta > 0 && slaRiskScore < 60 && typeof optimalPartnerId === "number" && optimalPartnerId > 0 && optimalPartnerId !== 3;
   logger.info("Dispatch decision factors", { slaRiskScore, optimalPartnerId, use4PL });
   const dispatchType = use4PL ? "4PL" : "3PL";
   const partnerName = use4PL ? partnerResult.data.optimal_partner_name : "Shopup (Internal)";
