@@ -107,7 +107,24 @@ export async function getDispatchRecommendation(
     optimalPartnerId > 0 &&
     optimalPartnerId !== 3;
 
-  logger.info('Dispatch decision factors', { slaRiskScore, optimalPartnerId, use4PL });
+  // Build a transparent reason string explaining the routing decision
+  let dispatchReason: string;
+  if (use4PL) {
+    dispatchReason = `4PL selected: ${partnerResult.data.optimal_partner_name} — SLA risk ${slaRiskScore}/100 (within threshold), margin delta +${fourPlMarginDelta.toFixed(2)} BDT/parcel vs 3PL`;
+  } else {
+    const reasons: string[] = [];
+    if (fourPlMarginDelta <= 0)
+      reasons.push(`4PL not profitable (margin delta ${fourPlMarginDelta.toFixed(2)} BDT/parcel)`);
+    if (slaRiskScore >= 60)
+      reasons.push(`SLA risk too high: ${slaRiskScore}/100 (threshold 60)`);
+    if (!optimalPartnerId || optimalPartnerId <= 0 || optimalPartnerId === 3)
+      reasons.push('no valid 4PL partner available for this area');
+    dispatchReason = `3PL selected (Shopup Internal): ${reasons.join('; ')}`;
+    if (optimalPartnerId && optimalPartnerId > 0 && optimalPartnerId !== 3)
+      dispatchReason += `. Best available 4PL would be ${partnerResult.data.optimal_partner_name} if risk/margin conditions improve`;
+  }
+
+  logger.info('Dispatch decision factors', { slaRiskScore, optimalPartnerId, fourPlMarginDelta, use4PL, dispatchReason });
 
   const dispatchType: '3PL' | '4PL' = use4PL ? '4PL' : '3PL';
   const partnerName = use4PL
@@ -150,6 +167,7 @@ export async function getDispatchRecommendation(
     expected_margin: expectedMargin,
     risk_score: slaRiskScore,
     confidence: partnerResult.data.confidence,
+    dispatch_reason: dispatchReason,
     summary: summaryResult.data,
   };
 

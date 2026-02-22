@@ -213,5 +213,6 @@ export interface DispatchDecision {
   expected_margin: number;
   risk_score: number;
   confidence: number;
+  dispatch_reason: string;
   summary: string;
 }
