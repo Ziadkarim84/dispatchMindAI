@@ -217,6 +217,7 @@ function cheapestPartnerForZone(
 }
 
 const MAX_SUGGESTIONS = 20;
+const MAX_PER_DIRECTION = 10; // max suggestions per direction when showing both
 
 function buildSuggestedAssignments(
   recommendation: string,
@@ -225,11 +226,13 @@ function buildSuggestedAssignments(
 ): AreaAssignment[] {
   const suggestions: AreaAssignment[] = [];
 
-  if (recommendation === 'shift_to_4pl' || recommendation === 'assign_partners') {
-    // Suggest assigning unassigned + 3PL areas to the cheapest 4PL partner
+  // ── 3PL/unassigned → cheapest 4PL ──────────────────────────────────────────
+  const shouldSuggest4pl = recommendation !== 'shift_to_3pl' && recommendation !== 'keep';
+  if (shouldSuggest4pl) {
+    const limit = breakdown.areas.some(a => a.is_4pl) ? MAX_PER_DIRECTION : MAX_SUGGESTIONS;
     const candidates = breakdown.areas
       .filter(a => a.is_unassigned || (!a.is_4pl && !a.is_unassigned))
-      .slice(0, MAX_SUGGESTIONS);
+      .slice(0, limit);
 
     for (const area of candidates) {
       const partnerZoneId = toPartnerZoneId(area.zone_id);
@@ -244,14 +247,18 @@ function buildSuggestedAssignments(
           : (area.partner_name ?? 'Shopup Internal'),
         recommended_partner_id: partner.partner_id,
         recommended_partner_name: partner.partner_name,
-        reason: `Cheapest 4PL for zone (BDT ${partner.kg1_price}/kg)`,
+        reason: `Assign to cheapest 4PL for zone (BDT ${partner.kg1_price}/kg)`,
       });
     }
-  } else if (recommendation === 'shift_to_3pl') {
-    // Suggest reverting 4PL areas to Shopup Internal
+  }
+
+  // ── 4PL → Shopup Internal (3PL) ────────────────────────────────────────────
+  const shouldSuggest3pl = recommendation !== 'shift_to_4pl' || breakdown.areas.some(a => a.is_4pl);
+  if (shouldSuggest3pl && recommendation !== 'keep') {
+    const limit = shouldSuggest4pl ? MAX_PER_DIRECTION : MAX_SUGGESTIONS;
     const candidates = breakdown.areas
       .filter(a => a.is_4pl)
-      .slice(0, MAX_SUGGESTIONS);
+      .slice(0, limit);
 
     for (const area of candidates) {
       suggestions.push({
@@ -261,45 +268,14 @@ function buildSuggestedAssignments(
         current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
         recommended_partner_id: 3,
         recommended_partner_name: 'Shopup Internal',
-        reason: 'Revert to 3PL to reduce external partner cost',
+        reason: 'Revert to 3PL (Shopup Internal) — evaluate if internal routing reduces cost',
       });
     }
-  } else if (recommendation === 'mixed_optimize') {
-    // Unassigned → cheapest 4PL; excess 4PL (no pricing data) → 3PL
-    const unassigned = breakdown.areas
-      .filter(a => a.is_unassigned)
-      .slice(0, MAX_SUGGESTIONS / 2);
+  }
 
-    for (const area of unassigned) {
-      const partnerZoneId = toPartnerZoneId(area.zone_id);
-      const partner = cheapestPartnerForZone(partnerZoneId, partners);
-      if (!partner) continue;
-      suggestions.push({
-        area_id: area.area_id,
-        area_name: area.area_name,
-        current_partner_id: null,
-        current_partner_name: 'Unassigned (3PL default)',
-        recommended_partner_id: partner.partner_id,
-        recommended_partner_name: partner.partner_name,
-        reason: `Assign to cheapest 4PL for zone (BDT ${partner.kg1_price}/kg)`,
-      });
-    }
-
-    const fourplAreas = breakdown.areas
-      .filter(a => a.is_4pl)
-      .slice(0, MAX_SUGGESTIONS / 2);
-
-    for (const area of fourplAreas) {
-      suggestions.push({
-        area_id: area.area_id,
-        area_name: area.area_name,
-        current_partner_id: area.partner_id,
-        current_partner_name: area.partner_name ?? `Partner ${area.partner_id}`,
-        recommended_partner_id: 3,
-        recommended_partner_name: 'Shopup Internal',
-        reason: 'Revert to 3PL to cut external partner cost',
-      });
-    }
+  if (recommendation === 'mixed_optimize') {
+    // mixed_optimize is fully handled by the two blocks above — return early
+    return suggestions;
   }
 
   return suggestions;
