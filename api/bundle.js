@@ -936,6 +936,9 @@ async function getDispatchRecommendation(input) {
   logger.info("Dispatch decision factors", { slaRiskScore, optimalPartnerId, use4PL });
   const dispatchType = use4PL ? "4PL" : "3PL";
   const partnerName = use4PL ? partnerResult.data.optimal_partner_name : "Shopup (Internal)";
+  const partnerId = use4PL ? partnerResult.data.optimal_partner_id : null;
+  const backupPartner = use4PL ? partnerResult.data.backup_partner_name ?? null : null;
+  const backupPartnerId = use4PL ? partnerResult.data.backup_partner_id ?? null : null;
   const expectedMargin = use4PL ? fourPlModel?.avg_margin_per_parcel ?? 0 : threePlModel?.avg_margin_per_parcel ?? 0;
   logger.debug("Running executive summary agent");
   const summaryResult = await runExecutiveSummaryAgent({
@@ -953,6 +956,9 @@ async function getDispatchRecommendation(input) {
   const decision = {
     type: dispatchType,
     partner: partnerName,
+    partner_id: partnerId,
+    backup_partner: backupPartner,
+    backup_partner_id: backupPartnerId,
     expected_margin: expectedMargin,
     risk_score: slaRiskScore,
     confidence: partnerResult.data.confidence,

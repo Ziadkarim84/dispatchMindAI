@@ -207,6 +207,9 @@ export interface HubSummaryResult {
 export interface DispatchDecision {
   type: '3PL' | '4PL';
   partner: string;
+  partner_id: number | null;
+  backup_partner: string | null;
+  backup_partner_id: number | null;
   expected_margin: number;
   risk_score: number;
   confidence: number;
