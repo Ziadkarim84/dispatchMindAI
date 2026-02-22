@@ -18,6 +18,10 @@ const SYSTEM_PROMPT = `You are an executive operations advisor for RedX, a couri
 You will receive analysis from multiple AI agents about a dispatch decision for a hub/area.
 Write a concise, human-readable decision report for operations managers.
 
+IMPORTANT terminology: "3PL", "Shopup", "Shopup Internal", and "Shopup (Internal)" all refer to
+the SAME thing — RedX's own in-house delivery fleet. Never suggest switching between these names
+as they are identical. Only suggest switching to a named external 4PL partner (e.g. Steadfast, Pathao).
+
 Your report must include:
 1. Recommended dispatch type (3PL or 4PL) and partner
 2. Key reason for the recommendation
@@ -58,7 +62,7 @@ Margin analysis (${dispatchType} scenario):
 - Avg margin per parcel: BDT ${recommendedCost?.avg_margin_per_parcel ?? 'N/A'}
 - Delta vs current: BDT ${recommendedCost?.margin_delta_vs_current ?? 'N/A'}
 
-Top SLA risk:
+Area SLA context (historical delivery performance, for reference only):
 - Partner: ${topRisk?.partner_name ?? 'N/A'}
 - Risk level: ${topRisk?.risk_level ?? 'N/A'}
 - Breach probability: ${topRisk?.breach_probability ?? 'N/A'}%
