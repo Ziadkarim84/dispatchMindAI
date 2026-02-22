@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 interface ApiSuccessResponse<T> {
   success: true;
@@ -26,7 +26,7 @@ interface ApiErrorResponse {
 function buildMeta() {
   return {
     timestamp: new Date().toISOString(),
-    requestId: uuidv4(),
+    requestId: randomUUID(),
   };
 }
 
