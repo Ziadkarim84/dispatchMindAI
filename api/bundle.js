@@ -1513,7 +1513,7 @@ function buildAreaBreakdowns(areaRows) {
     if (!areaMap.has(row.area_id)) {
       areaMap.set(row.area_id, {
         hubId: row.hub_id,
-        partnerIds: /* @__PURE__ */ new Set(),
+        fourplPartner: null,
         area: {
           area_id: row.area_id,
           area_name: row.area_name,
@@ -1527,13 +1527,23 @@ function buildAreaBreakdowns(areaRows) {
     }
     const entry = areaMap.get(row.area_id);
     if (row.partner_id !== null) {
-      entry.partnerIds.add(row.partner_id);
       entry.area.is_unassigned = false;
       if (entry.area.partner_id === null) {
         entry.area.partner_id = row.partner_id;
         entry.area.partner_name = row.partner_name;
       }
-      if (row.partner_id !== 3) entry.area.is_4pl = true;
+      if (row.partner_id !== 3) {
+        entry.area.is_4pl = true;
+        if (!entry.fourplPartner) {
+          entry.fourplPartner = { id: row.partner_id, name: row.partner_name };
+        }
+      }
+    }
+  }
+  for (const { area, fourplPartner } of areaMap.values()) {
+    if (area.is_4pl && fourplPartner) {
+      area.partner_id = fourplPartner.id;
+      area.partner_name = fourplPartner.name;
     }
   }
   const hubMap = /* @__PURE__ */ new Map();
@@ -1583,8 +1593,8 @@ function buildSuggestedAssignments(recommendation, breakdown, partners) {
       });
     }
   }
-  const shouldSuggest3pl = recommendation !== "shift_to_4pl" || breakdown.areas.some((a) => a.is_4pl);
-  if (shouldSuggest3pl && recommendation !== "keep") {
+  const shouldSuggest3pl = recommendation === "shift_to_3pl" || recommendation === "mixed_optimize";
+  if (shouldSuggest3pl) {
     const limit = shouldSuggest4pl ? MAX_PER_DIRECTION : MAX_SUGGESTIONS;
     const candidates = breakdown.areas.filter((a) => a.is_4pl).slice(0, limit);
     for (const area of candidates) {

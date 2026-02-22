@@ -154,13 +154,20 @@ interface HubAreaBreakdown {
 
 function buildAreaBreakdowns(areaRows: AreaRow[]): Map<number, HubAreaBreakdown> {
   // First pass: collect all partner_ids per area
-  const areaMap = new Map<number, { hubId: number; area: ProcessedArea; partnerIds: Set<number> }>();
+  // Track the best 4PL partner separately — an area may have both Shopup Internal (ID=3)
+  // AND a real 4PL partner active simultaneously (e.g. after a seed run). When that happens,
+  // display the 4PL partner as the canonical current partner so suggestions are accurate.
+  const areaMap = new Map<number, {
+    hubId: number;
+    area: ProcessedArea;
+    fourplPartner: { id: number; name: string | null } | null;
+  }>();
 
   for (const row of areaRows) {
     if (!areaMap.has(row.area_id)) {
       areaMap.set(row.area_id, {
         hubId: row.hub_id,
-        partnerIds: new Set(),
+        fourplPartner: null,
         area: {
           area_id: row.area_id,
           area_name: row.area_name,
@@ -174,13 +181,27 @@ function buildAreaBreakdowns(areaRows: AreaRow[]): Map<number, HubAreaBreakdown>
     }
     const entry = areaMap.get(row.area_id)!;
     if (row.partner_id !== null) {
-      entry.partnerIds.add(row.partner_id);
       entry.area.is_unassigned = false;
       if (entry.area.partner_id === null) {
         entry.area.partner_id = row.partner_id;
         entry.area.partner_name = row.partner_name;
       }
-      if (row.partner_id !== 3) entry.area.is_4pl = true;
+      if (row.partner_id !== 3) {
+        entry.area.is_4pl = true;
+        // Prefer the first real 4PL partner encountered for display
+        if (!entry.fourplPartner) {
+          entry.fourplPartner = { id: row.partner_id, name: row.partner_name };
+        }
+      }
+    }
+  }
+
+  // If the area is 4PL, overwrite the display partner with the actual 4PL partner
+  // (avoids showing "ShopUp Internal" as current when a real 4PL partner co-exists)
+  for (const { area, fourplPartner } of areaMap.values()) {
+    if (area.is_4pl && fourplPartner) {
+      area.partner_id = fourplPartner.id;
+      area.partner_name = fourplPartner.name;
     }
   }
 
@@ -253,8 +274,10 @@ function buildSuggestedAssignments(
   }
 
   // ── 4PL → Shopup Internal (3PL) ────────────────────────────────────────────
-  const shouldSuggest3pl = recommendation !== 'shift_to_4pl' || breakdown.areas.some(a => a.is_4pl);
-  if (shouldSuggest3pl && recommendation !== 'keep') {
+  // Only suggest reverting to 3PL when explicitly recommended — never for shift_to_4pl
+  // or assign_partners (those should only move areas TO 4PL, not away from it).
+  const shouldSuggest3pl = recommendation === 'shift_to_3pl' || recommendation === 'mixed_optimize';
+  if (shouldSuggest3pl) {
     const limit = shouldSuggest4pl ? MAX_PER_DIRECTION : MAX_SUGGESTIONS;
     const candidates = breakdown.areas
       .filter(a => a.is_4pl)
