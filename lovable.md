@@ -686,3 +686,58 @@ export function useApiHealth() {
   return online;
 }
 ```
+
+---
+
+## Change Log
+
+All changes below should be applied on top of the original prompt above.
+
+---
+
+### Change 1 — Update API base URL to production
+
+```
+Update the API base URL from http://localhost:3000 to the production Vercel deployment:
+https://dispatch-mind-ai-beta.vercel.app
+
+Update VITE_API_URL in the environment config and the BASE_URL fallback in src/lib/api.ts.
+```
+
+---
+
+### Change 2 — Merge Partner Optimizer into AI Dispatch Recommender
+
+```
+Remove the "Partner Optimizer" tab and the /partners page entirely.
+Remove it from the sidebar navigation.
+
+The dispatch API (POST /api/v1/dispatch/recommend) now returns full partner
+selection data. Update the DispatchResult type in src/lib/api.ts to:
+
+export interface DispatchResult {
+  type: '3PL' | '4PL';
+  partner: string;
+  partner_id: number | null;
+  backup_partner: string | null;
+  backup_partner_id: number | null;
+  expected_margin: number;
+  risk_score: number;
+  confidence: number;
+  summary: string;
+}
+
+In the AI Dispatch Recommender result card, show:
+1. Decision badge: "3PL – Shopup Internal" (green) or "4PL – [partner name]" (purple/blue)
+2. If type is "4PL" and backup_partner is not null, show a secondary row:
+   "Backup: [backup_partner]" in a smaller dimmed style below the main partner
+3. Keep the existing metrics: Expected margin (BDT/parcel), Confidence %, SLA risk score
+4. Keep the AI Executive Summary text with typewriter animation
+
+The sidebar should now have 5 items (remove Partners):
+1. Dashboard (/)
+2. Dispatch (/dispatch) — renamed label: "AI Dispatch"
+3. Hubs (/hubs)
+4. Hub Health (/hubs/summary)
+5. History (/history)
+```
