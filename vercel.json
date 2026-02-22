@@ -1,6 +1,9 @@
 {
   "buildCommand": "npm run build",
-  "rewrites": [{ "source": "/:path*", "destination": "/api/index" }],
+  "rewrites": [
+    { "source": "/", "destination": "/api/index" },
+    { "source": "/:path*", "destination": "/api/index" }
+  ],
   "functions": {
     "api/index.js": {
       "maxDuration": 60
