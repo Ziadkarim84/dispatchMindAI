@@ -4,21 +4,20 @@ import { runPrompt } from './base.agent';
 import { logger } from '@common/utils/logger.util';
 
 const SYSTEM_PROMPT = `You are a delivery partner selection expert for RedX, a courier company in Bangladesh.
-You will receive available partners for an area along with their SLA risk scores, the computed
-all-in cost for this specific parcel (delivery charge + COD fee for the actual weight and value),
-and hub-level cost modeling data.
-Select the optimal partner and a backup, balancing cost savings and SLA reliability.
+You will receive the available external (4PL) partners for an area along with their SLA risk scores
+and the computed all-in cost for this specific parcel (delivery charge + COD fee).
+Select the optimal 4PL partner and a backup from the provided list only.
 
 Cost context:
 - "computed_delivery_charge": the exact charge for this parcel's weight in this zone
 - "computed_cod_fee": COD fee = parcel_value × cod_percentage / 100
-- "computed_total_cost": delivery_charge + cod_fee — this is the true per-parcel 4PL cost
-- "Shopup (Internal)" has no per-parcel fee; use the 3PL margin from cost modeling data instead
+- "computed_total_cost": delivery_charge + cod_fee — this is the true per-parcel cost
 - Prefer partners with lower total_cost AND lower SLA risk
+- If no partners are available or all have unacceptably high SLA risk, return optimal_partner_id: 0
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
-  "optimal_partner_id": <number>,
+  "optimal_partner_id": <number — must be one of the listed partner IDs, or 0 if none suitable>,
   "optimal_partner_name": "<string>",
   "confidence": <0-100>,
   "backup_partner_id": <number | null>,
@@ -195,17 +194,15 @@ ${JSON.stringify(partnersWithCost, null, 2)}
 Partners without pricing data (use SLA risk scores only):
 ${JSON.stringify(partnersWithoutCost, null, 2)}
 
-Shopup (Internal) 3PL is always available as baseline — no per-parcel 4PL fee applies.
-
 SLA risk assessment per partner (last 90 days):
 ${JSON.stringify(slaRisks, null, 2)}
 
 Hub-level cost modeling (3PL vs 4PL vs Hybrid margin scenarios):
 ${JSON.stringify(costModels, null, 2)}
 
-Select the optimal partner and a backup for this area.
+Select the optimal 4PL partner and a backup from the list above only.
 Prioritize: low SLA risk first, then lowest computed_total_cost.
-If a partner has better SLA and lower cost than others, strongly prefer them.`;
+If no partner is suitable (all SLA risk > 80 or no partners listed), return optimal_partner_id: 0.`;
 
   logger.debug('[PartnerEvaluationAgent] Calling Claude', { areaId, partnerCount: availablePartners.length + 1 });
   let raw: string;

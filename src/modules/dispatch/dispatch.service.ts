@@ -96,10 +96,12 @@ export async function getDispatchRecommendation(
   // The cost modeling agent is a hub-level strategic signal (used in executive summary),
   // not a per-parcel gate — 3PL always shows better hub margin since it has no per-parcel
   // fee, which would permanently block 4PL regardless of partner quality or SLA.
-  // optimal_partner_id === 0 means no partner found; === 3 means Claude chose Shopup Internal (3PL).
+  // Guard: Claude returns null for optimal_partner_id when preferring Shopup Internal —
+  // null passes !== 0 and !== 3 in JS, so we explicitly require a positive integer.
   const use4PL =
     slaRiskScore < 60 &&
-    optimalPartnerId !== 0 &&
+    typeof optimalPartnerId === 'number' &&
+    optimalPartnerId > 0 &&
     optimalPartnerId !== 3;
 
   logger.info('Dispatch decision factors', { slaRiskScore, optimalPartnerId, use4PL });
