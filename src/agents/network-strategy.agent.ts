@@ -9,13 +9,13 @@ import { query } from '@database/connection';
 import { runPrompt } from './base.agent';
 
 const PROFITABILITY_SYSTEM_PROMPT = `You are a logistics network strategy expert for RedX, a courier company in Bangladesh.
-You will receive hub operational data, volume forecasts, and cost/margin analysis.
+You will receive hub operational data, volume forecasts, cost/margin analysis, and a PRE-CALCULATED
+projected 90-day margin. Use the pre-calculated value exactly — do not recompute it.
 Recommend whether to keep, close, or convert this hub to 4PL-only.
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
   "recommendation": "keep" | "close" | "convert",
-  "projected_margin_90d": <number in BDT>,
   "risk_score": <0-100>,
   "reasoning": "<brief explanation>"
 }`;
@@ -131,7 +131,16 @@ function parseClaudeJson<T>(raw: string): T {
   if (start === -1) throw new Error(`No JSON found in Claude response: ${cleaned.slice(0, 100)}`);
   const openChar = cleaned[start];
   const closeChar = openChar === '{' ? '}' : ']';
-  const end = cleaned.lastIndexOf(closeChar);
+  let depth = 0, inString = false, escape = false, end = -1;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    else if (ch === closeChar && --depth === 0) { end = i; break; }
+  }
   if (end === -1) throw new Error(`No closing ${closeChar} found in Claude response`);
   return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
@@ -150,36 +159,46 @@ export async function runNetworkStrategyAgent(
 
   const activeAreas = hubAreas.filter(a => a.status === 'active').length;
 
+  // Pre-compute projected 90-day margin in code to avoid Claude inconsistency:
+  // revenue = forecast volume × avg revenue per parcel; deduct fixed costs × 3 months
+  const avgRevenuePerParcel = costModels.find(c => c.scenario === '3PL')?.avg_revenue_per_parcel ?? 0;
+  const projected_margin_90d = Math.round(
+    volumeForecast.forecast_90d_total * avgRevenuePerParcel - totalFixedCost * 3
+  );
+
   const userPrompt = `Hub ID: ${hubId}
 
 Hub configuration:
 ${JSON.stringify(hubConfig, null, 2)}
 
 Areas served by this hub: ${hubAreas.length} total (${activeAreas} active)
-${JSON.stringify(hubAreas, null, 2)}
 
 Last 90 days operational summary:
 ${JSON.stringify(aggregate, null, 2)}
 
 Monthly fixed costs (BDT): ${totalFixedCost}
+Fixed costs over 90 days (BDT): ${totalFixedCost * 3}
 
-Volume forecast (next 90 days):
-${JSON.stringify(volumeForecast, null, 2)}
+Volume forecast (next 90 days): ${volumeForecast.forecast_90d_total} parcels (${volumeForecast.trend} trend)
+Avg revenue per parcel (BDT): ${avgRevenuePerParcel}
+
+PRE-CALCULATED projected 90-day margin (BDT): ${projected_margin_90d}
+Formula: (${volumeForecast.forecast_90d_total} parcels × BDT ${avgRevenuePerParcel}) - BDT ${totalFixedCost * 3} fixed costs = BDT ${projected_margin_90d}
 
 Margin scenarios:
 ${JSON.stringify(costModels, null, 2)}
 
 Should this hub be kept open (3PL), closed, or converted to 4PL-only?
-Provide projected 90-day margin after your recommended action.`;
+Use the pre-calculated projected_margin_90d of ${projected_margin_90d} BDT in your response.`;
 
   const raw = await runPrompt(PROFITABILITY_SYSTEM_PROMPT, userPrompt);
-  const parsed = parseClaudeJson<HubProfitabilityResult & { reasoning: string }>(raw);
+  const parsed = parseClaudeJson<{ recommendation: string; risk_score: number; reasoning: string }>(raw);
 
   return {
     data: {
       hub_id: hubId,
-      recommendation: parsed.recommendation,
-      projected_margin_90d: parsed.projected_margin_90d,
+      recommendation: parsed.recommendation as HubProfitabilityResult['recommendation'],
+      projected_margin_90d,
       risk_score: parsed.risk_score,
     },
     reasoning: parsed.reasoning,
@@ -201,30 +220,51 @@ export async function runHubModelAdvisorAgent(
 
   const activeAreas = hubAreas.filter(a => a.status === 'active').length;
 
+  // Pre-compute projected 90-day profitability consistently with profitability agent
+  const avgRevenuePerParcelAdvisor = costModels.find(c => c.scenario === '3PL')?.avg_revenue_per_parcel ?? 0;
+  const projected_profitability_90d = Math.round(
+    volumeForecast.forecast_90d_total * avgRevenuePerParcelAdvisor - totalFixedCost * 3
+  );
+  const fourPlModel = costModels.find(c => c.scenario === '4PL');
+  const hybridModel = costModels.find(c => c.scenario === 'Hybrid');
+
   const userPrompt = `Hub ID: ${hubId}
 
 Hub configuration:
 ${JSON.stringify(hubConfig, null, 2)}
 
 Areas served by this hub: ${hubAreas.length} total (${activeAreas} active)
-${JSON.stringify(hubAreas, null, 2)}
 
 Last 90 days operational summary:
 ${JSON.stringify(aggregate, null, 2)}
 
 Monthly fixed costs (BDT): ${totalFixedCost}
+Fixed costs over 90 days (BDT): ${totalFixedCost * 3}
 
-Volume forecast (next 90 days):
-${JSON.stringify(volumeForecast, null, 2)}
+Volume forecast (next 90 days): ${volumeForecast.forecast_90d_total} parcels (${volumeForecast.trend} trend)
+
+PRE-CALCULATED 90-day profitability by model:
+- 3PL (current): BDT ${projected_profitability_90d}
+- 4PL: BDT ${Math.round(projected_profitability_90d + (fourPlModel?.margin_delta_vs_current ?? 0) * volumeForecast.forecast_90d_total)}
+- Hybrid: BDT ${Math.round(projected_profitability_90d + (hybridModel?.margin_delta_vs_current ?? 0) * volumeForecast.forecast_90d_total)}
 
 Cost and margin scenarios (3PL / 4PL / Hybrid):
 ${JSON.stringify(costModels, null, 2)}
 
 Recommend the optimal operating model (3PL-only, 4PL-only, or Hybrid) for this hub.
-Include projected 90-day profitability and margin uplift vs current state.`;
+Use the pre-calculated projected_profitability_90d values above in your response.`;
+
 
   const raw = await runPrompt(MODEL_ADVISOR_SYSTEM_PROMPT, userPrompt);
   const parsed = parseClaudeJson<HubModelRecommendation & { reasoning: string }>(raw);
+
+  // Use pre-computed projected_profitability_90d for the recommended model
+  const recommended_90d =
+    parsed.recommended_model === '4PL'
+      ? Math.round(projected_profitability_90d + (fourPlModel?.margin_delta_vs_current ?? 0) * volumeForecast.forecast_90d_total)
+      : parsed.recommended_model === 'Hybrid'
+      ? Math.round(projected_profitability_90d + (hybridModel?.margin_delta_vs_current ?? 0) * volumeForecast.forecast_90d_total)
+      : projected_profitability_90d;
 
   return {
     data: {
@@ -233,7 +273,7 @@ Include projected 90-day profitability and margin uplift vs current state.`;
       margin_uplift: parsed.margin_uplift,
       risk_score: parsed.risk_score,
       confidence: parsed.confidence,
-      projected_profitability_90d: parsed.projected_profitability_90d,
+      projected_profitability_90d: recommended_90d,
     },
     reasoning: parsed.reasoning,
     confidence: parsed.confidence,
