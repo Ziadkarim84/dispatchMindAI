@@ -1,0 +1,270 @@
+================================================================================
+  DISPATCHMINDAI — SYSTEM ARCHITECTURE OVERVIEW
+  RedX Hackathon 2026
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PROBLEM STATEMENT
+--------------------------------------------------------------------------------
+
+RedX operates 50+ delivery hubs across Bangladesh. Every parcel dispatch
+involves a critical decision: should it be routed through the internal fleet
+(3PL) or handed off to an external courier partner (4PL like Pathao,
+Steadfast, Paper Fly, SA Paribahan)?
+
+This decision is currently manual, slow, and inconsistent. The wrong choice
+costs money — either through unnecessary 4PL partner fees or through internal
+fleet inefficiency. At RedX's scale (100K+ parcels/day), even a BDT 5 margin
+improvement per parcel compounds to BDT 500K/day.
+
+DispatchMindAI solves this with an autonomous multi-agent AI pipeline.
+
+--------------------------------------------------------------------------------
+2. HIGH-LEVEL ARCHITECTURE
+--------------------------------------------------------------------------------
+
+  [React Frontend (Lovable)]
+          │  HTTP (port 3000)
+          ▼
+  ┌───────────────────────────────────────────────────┐
+  │            Express.js API Layer (TypeScript)       │
+  │                                                   │
+  │  /api/v1/dispatch/recommend  (POST)               │
+  │  /api/v1/dispatch/history    (GET)                │
+  │  /api/v1/partners/optimize   (GET)                │
+  │  /api/v1/hubs/summary        (GET)                │
+  │  /api/v1/hubs/assign-partners (POST)              │
+  │  /api/v1/hubs/:id/profitability (GET)             │
+  │  /api/v1/hubs/:id/model-advice  (GET)             │
+  │  /api/v1/hubs  (GET)                              │
+  │  /api/v1/areas (GET)                              │
+  └────────────────────┬──────────────────────────────┘
+                       │
+          ┌────────────▼────────────┐
+          │   Agent Orchestrator    │
+          │  (dispatch.service.ts)  │
+          └────────────┬────────────┘
+                       │
+     ┌─────────────────┼─────────────────────┐
+     ▼                 ▼                     ▼
+  Agent 1          Agent 2              Agent 3
+  Volume           Cost                 SLA Risk
+  Forecast         Modeling             Analyzer
+     │                 │                     │
+     └────────────┬────┘                     │
+                  ▼                          ▼
+              Agent 4: Partner Evaluation ◄──┘
+              (ranks partners by cost + SLA)
+                       │
+                       ▼
+              Agent 5: Executive Summary
+              (plain-English report via Claude)
+                       │
+                       ▼
+            DispatchDecision { type, partner,
+              expected_margin, risk_score,
+              confidence, summary }
+
+
+--------------------------------------------------------------------------------
+3. AGENT PIPELINE — DETAILED DATA FLOW
+--------------------------------------------------------------------------------
+
+INPUT: { area_id, weight(kg), parcel_value(BDT), sla_days }
+       hub_id is optional — derived from area_id via sl_area_hub if absent
+
+AGENT 1 — Volume Forecast
+  Source: dm_hub_daily_volume (pre-aggregated)
+  Output: { predicted_daily_avg, trend, forecast_90d_total }
+  Purpose: Is this hub growing or shrinking? Affects cost allocation.
+
+AGENT 2 — Cost Modeling
+  Source: dm_hub_contribution_margin + dm_hub_monthly_costs
+  Input:  Volume forecast from Agent 1
+  Output: [ {scenario: '3PL', avg_margin}, {scenario: '4PL'}, {scenario: 'Hybrid'} ]
+  Purpose: What is the per-parcel margin under each operating model?
+
+AGENT 3 — SLA Risk Analyzer
+  Source: dm_partner_sla_performance (last 90 days)
+  Input:  area_id + sla_days (merchant's required delivery window)
+  Output: [ { partner_id, breach_probability, risk_score, risk_level } ]
+  Dynamic thresholds:
+    - sla_days=1  → LOW<5%,  MEDIUM<15%
+    - sla_days=3  → LOW<15%, MEDIUM<35%  (default)
+    - sla_days=5+ → LOW<25%, MEDIUM<50%
+
+AGENT 4 — Partner Evaluation
+  Source: sl_area_partners + sl_fourpl_partner_pricing + sl_areas
+  Input:  SLA risks (Agent 3) + cost models (Agent 2) + weight(g) + parcel_value
+  Logic:
+    - Fetches all active 4PL partners for the area with zone-aware pricing
+    - Computes per-partner total cost: delivery_charge + COD_fee
+      - Weight tiers: ≤500g / ≤1kg / ≤2kg / ≤3kg / ≤4kg / ≤5kg / >5kg
+      - COD fee = parcel_value × cod_percentage / 100
+    - Claude selects optimal + backup partner balancing cost vs SLA risk
+  Output: { optimal_partner, backup_partner, confidence, sla_risk_score }
+
+DISPATCH LOGIC (service layer, no Claude):
+    use4PL = (4PL margin_delta > 0) AND (sla_risk_score < 60) AND (partner found)
+    → If use4PL: dispatch type = '4PL', partner = optimal_partner_name
+    → Otherwise: dispatch type = '3PL', partner = 'Shopup (Internal)'
+
+AGENT 5 — Executive Summary
+  Input:  All of the above (hub, area, parcel context + all agent outputs)
+  Output: Plain-English narrative for operations managers
+  Format: Dispatch Decision Report | Hub X | Area Y | Recommendation | Reasoning
+
+--------------------------------------------------------------------------------
+4. HUB HEALTH SYSTEM
+--------------------------------------------------------------------------------
+
+A separate read-only analysis system that runs across ALL hubs at once.
+
+GET /api/v1/hubs/summary
+
+  Data fetch (parallel, no Claude yet):
+    - dm_hub_contribution_margin → 3-month margin per hub
+    - sl_area_hub + sl_area_partners → area breakdown (3PL/4PL/unassigned)
+    - sl_fourpl_partner_pricing → available 4PL partner costs per zone
+
+  Pre-filtering:
+    - Top 15 worst-performing hubs → sent to Claude (1 call, ~4K tokens)
+    - Remaining hubs → auto-classified programmatically (no AI call)
+
+  Claude returns per problem-hub:
+    recommendation: keep | shift_to_4pl | shift_to_3pl | mixed_optimize | assign_partners
+    priority: high | medium | low
+    recommended_action: human-readable explanation
+    estimated_margin_improvement_90d: BDT amount
+
+  Service layer then programmatically builds suggested_assignments:
+    - shift_to_4pl / assign_partners: match unassigned areas to cheapest 4PL
+      partner for their zone (ISD/SUB/OSD)
+    - shift_to_3pl: list 4PL areas → recommend revert to Shopup Internal (ID=3)
+    - mixed_optimize: mix of both
+
+POST /api/v1/hubs/assign-partners
+  Input: [ { area_id, partner_id } ]
+  Action per assignment:
+    1. UPDATE sl_area_partners SET STATUS='inactive' WHERE AREA_ID = ?
+    2. INSERT sl_area_partners (AREA_ID, PARTNER_ID, 'active')
+       ON DUPLICATE KEY UPDATE STATUS='active'
+
+
+--------------------------------------------------------------------------------
+5. DATABASE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+TWO DATABASE ENVIRONMENTS:
+
+A) stage1_shopuplite (Production, read-only via Teleport)
+   ─────────────────────────────────────────────────────
+   sl_parcels              — all parcel records (100K+/day)
+   sl_hubs                 — hub configuration + SLA targets
+   sl_areas                — delivery areas + zone mapping
+   sl_area_hub             — area-to-hub mapping (active/inactive)
+   sl_area_partners        — area-to-4PL-partner mapping
+   sl_delivery_partners    — partner directory (ID=3 = Shopup Internal = 3PL)
+   sl_parcel_logs          — parcel lifecycle events
+   sl_logistics_parcel_routes — hub role per parcel (pickup/delivery)
+   sl_fourpl_parcels       — external partner delivery records
+   sl_shop_zones           — shop-level pricing by zone
+   sl_fourpl_partner_pricing — zone-aware weight-tier pricing per 4PL partner
+
+B) dispatch_mind_ai (Local Docker MySQL)
+   ──────────────────────────────────────
+   dm_hub_daily_volume        — pre-aggregated: parcels per hub per day (90d)
+   dm_partner_sla_performance — breach rate per partner/area/month (6 months)
+   dm_hub_contribution_margin — revenue, 4PL cost, margin per hub/month (6 months)
+   dm_hub_monthly_costs       — manual cost inputs: rent, staff, utilities
+
+DATA PIPELINE:
+   npm run db:sync       → copies 11 tables from stage1_shopuplite to local
+   npm run db:aggregate  → populates dm_* aggregation tables from synced data
+   npm run db:seed       → seeds realistic demo data (4 hubs, 20K parcels/day)
+
+
+--------------------------------------------------------------------------------
+6. ZONE & PRICING SYSTEM
+--------------------------------------------------------------------------------
+
+RedX delivery zones map to 4PL pricing zones:
+  sl_areas.ZONE_ID = 1 → ISD  (Inside Dhaka City)
+  sl_areas.ZONE_ID = 2 → SUB  (Dhaka Suburbs)
+  sl_areas.ZONE_ID = 7+ → OSD (Outside Dhaka)
+
+sl_fourpl_partner_pricing (zone_id: 1=ISD, 2=SUB, 3=OSD)
+  Per partner, per zone:
+    kg05_price      — price for parcels ≤ 500g
+    kg1_price       — price for parcels ≤ 1kg
+    kg2_price through kg5_price
+    extended_per_kg — charge per kg above 5kg
+    cod_percentage  — COD fee as % of parcel value
+    return_charge   — flat return fee
+
+4PL partner IDs in demo data:
+  ID=7   SA Paribahan
+  ID=8   Paper Fly
+  ID=11  Pathao
+  ID=14  Steadfast
+  ID=3   Shopup Internal (3PL baseline — never in sl_fourpl_partner_pricing)
+
+
+--------------------------------------------------------------------------------
+7. TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+Runtime:        Node.js 22 + TypeScript 5.9
+Framework:      Express.js 5
+AI:             Anthropic Claude Sonnet 4.6 (multi-agent)
+Database:       MySQL 8.0 (Docker for local, Teleport for stage)
+ORM:            Raw SQL via mysql2/promise (performance-critical queries)
+Validation:     Zod (schema validation on all API inputs)
+Logging:        Winston (structured JSON logs, DEBUG/INFO/ERROR)
+Dev tooling:    nodemon + ts-node + tsconfig-paths
+Frontend:       React + Tailwind CSS + shadcn/ui (via Lovable AI)
+
+Key design decisions:
+  - No ORM: raw SQL for full control over query plans on large tables
+  - Pre-aggregation: dm_* tables avoid real-time scans of sl_parcels (100M+ rows)
+  - Agent chaining: each agent's output is the next agent's structured input
+  - Single Claude call for hub summary: pre-filter to top 15 hubs to stay within
+    rate limits (30K tokens/min) — reduces prompt from 224K to 4K tokens
+  - Zod schemas on all API inputs: fail fast before expensive AI calls
+
+
+--------------------------------------------------------------------------------
+8. API ENDPOINTS SUMMARY
+--------------------------------------------------------------------------------
+
+POST /api/v1/dispatch/recommend
+  Input:  { area_id, parcel_value, weight(kg), sla_days, hub_id? }
+  Output: { type, partner, expected_margin, risk_score, confidence, summary }
+  Time:   15–30 seconds (5 Claude calls)
+
+GET  /api/v1/dispatch/history
+  Output: Last 200 dispatch decisions (in-memory)
+
+GET  /api/v1/partners/optimize?area_id=N
+  Output: { optimal_partner, backup_partner, confidence, sla_risk_score }
+  Time:   10–20 seconds (3 Claude calls)
+
+GET  /api/v1/hubs/summary
+  Output: { total_hubs, losing_hubs, hubs[]: { recommendation, suggested_assignments[] } }
+  Time:   ~15 seconds (1 Claude call)
+
+POST /api/v1/hubs/assign-partners
+  Input:  { assignments: [{ area_id, partner_id }] }
+  Output: [ { area_id, partner_id, partner_name, status } ]
+
+GET  /api/v1/hubs/:hubId/profitability
+  Output: { recommendation: keep|close|convert, projected_margin_90d, risk_score }
+
+GET  /api/v1/hubs/:hubId/model-advice
+  Output: { recommended_model: 3PL|4PL|Hybrid, margin_uplift, confidence }
+
+GET  /api/v1/hubs          → hub list (id, name, operational_code)
+GET  /api/v1/areas         → area list (id, name, name_bn)
+GET  /health               → { status: "ok" }
+
+================================================================================

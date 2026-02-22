@@ -1,0 +1,192 @@
+================================================================================
+  DISPATCHMINDAI — HACKATHON PRESENTATION GUIDE
+  Total time: 5 minutes (3 min presentation + 2 min Q&A)
+================================================================================
+
+--------------------------------------------------------------------------------
+SLIDE 1 — TITLE  (15 seconds)
+--------------------------------------------------------------------------------
+
+  DispatchMindAI
+  AI-Driven Autonomous Dispatch Optimization for RedX
+
+  Tagline: "Stop guessing. Start dispatching intelligently."
+
+  Built with: Claude Sonnet 4.6 · Node.js · MySQL · React
+
+
+--------------------------------------------------------------------------------
+SLIDE 2 — THE PROBLEM  (30 seconds)
+--------------------------------------------------------------------------------
+
+  RedX moves 100,000+ parcels per day across 50+ hubs.
+
+  Every parcel needs a dispatch decision:
+    → Internal fleet (3PL / Shopup)?
+    → External courier partner (4PL / Pathao, Steadfast, Paper Fly)?
+
+  Today this is:
+    ✗ Manual — operations staff decide hub by hub
+    ✗ Slow   — no real-time cost/SLA data
+    ✗ Costly — wrong decisions at scale = millions lost per month
+
+  A BDT 5 margin improvement per parcel = BDT 500,000/day saved.
+
+
+--------------------------------------------------------------------------------
+SLIDE 3 — THE SOLUTION  (30 seconds)
+--------------------------------------------------------------------------------
+
+  DispatchMindAI is a multi-agent AI pipeline that:
+
+  1. Reads live RedX production data (parcels, hubs, partners, SLA history)
+  2. Runs 5 specialized AI agents powered by Claude Sonnet 4.6
+  3. Returns a dispatch decision in 15–30 seconds with a full business report
+
+  Decision output:
+    → Dispatch type:      3PL or 4PL
+    → Partner:            "Pathao" or "Shopup (Internal)"
+    → Expected margin:    BDT +57.43 per parcel
+    → Risk score:         28 / 100 (LOW)
+    → Confidence:         74%
+    → Executive summary:  Plain-English report for operations managers
+
+
+--------------------------------------------------------------------------------
+SLIDE 4 — THE AI PIPELINE  (40 seconds)
+--------------------------------------------------------------------------------
+
+  5 agents run in sequence for every dispatch decision:
+
+  [Agent 1] Volume Forecast
+    → Predicts next 90-day parcel volume for the hub
+    → Trend: growing / shrinking / stable
+
+  [Agent 2] Cost Modeling
+    → Models 3PL vs 4PL vs Hybrid margin scenarios
+    → Uses hub fixed costs (rent, staff, utilities) + 4PL partner charges
+
+  [Agent 3] SLA Risk Analyzer
+    → Scores each partner's breach probability for this area
+    → Adjusts thresholds based on merchant's SLA requirement (1–7 days)
+
+  [Agent 4] Partner Evaluation
+    → Computes exact per-parcel cost: delivery charge + COD fee per weight tier
+    → Claude picks optimal + backup partner (cost × SLA reliability)
+
+  [Agent 5] Executive Summary
+    → Claude writes a plain-English decision report for ops managers
+
+  Each agent uses pre-aggregated MySQL data — no real-time full-table scans.
+
+
+--------------------------------------------------------------------------------
+SLIDE 5 — KEY FEATURES  (30 seconds)
+--------------------------------------------------------------------------------
+
+  DISPATCH RECOMMENDER
+    - Input: area, weight, parcel value, SLA days (hub auto-detected)
+    - Output: 3PL vs 4PL decision with margin, risk score, and AI summary
+
+  PARTNER OPTIMIZER
+    - Input: area only
+    - Output: ranked partner list with SLA risk + cost comparison
+
+  HUB HEALTH
+    - Fleet-wide profitability scan across all 50 hubs — one AI call
+    - Identifies losing hubs + recommends specific partner reassignments
+    - One-click "Apply Assignments" writes changes to the database
+
+  HUB PROFITABILITY + MODEL ADVISOR
+    - Per-hub: keep / close / convert-to-4PL recommendation
+    - 3PL vs 4PL vs Hybrid comparison with 90-day margin projection
+
+  DECISION HISTORY
+    - Audit trail of last 200 AI dispatch decisions
+
+
+--------------------------------------------------------------------------------
+SLIDE 6 — LIVE DEMO FLOW  (30 seconds — point at screen)
+--------------------------------------------------------------------------------
+
+  1. Open /hubs/summary → show fleet health, losing hubs flagged red
+  2. Open /dispatch → select Area 91 (Tejgaon), 1.2kg, BDT 1500, 3-day SLA
+  3. Click "Run AI Pipeline" → watch agents progress
+  4. Show result: 4PL via Pathao, BDT +57 margin, risk 28, Claude summary
+  5. Open /partners → Area 2, show optimal partner + backup
+
+  Key message: Real data from RedX production DB. This isn't a mock.
+
+
+--------------------------------------------------------------------------------
+SLIDE 7 — BUSINESS IMPACT  (20 seconds)
+--------------------------------------------------------------------------------
+
+  What this unlocks for RedX:
+
+  • Margin recovery      — identify and fix losing hubs before month-end
+  • Partner optimization — right partner for right area, right parcel weight
+  • Speed               — 15-second AI decision vs manual overnight review
+  • Auditability        — every decision logged with AI reasoning
+  • Scalability         — same system works for 5 hubs or 500
+
+  Hub Health alone: identifies hubs losing millions/month with specific
+  fix recommendations + one-click database updates.
+
+
+--------------------------------------------------------------------------------
+SLIDE 8 — TECH STACK (10 seconds — just show the logos)
+--------------------------------------------------------------------------------
+
+  Claude Sonnet 4.6  ·  Node.js 22  ·  TypeScript  ·  Express
+  MySQL 8.0  ·  React  ·  Tailwind CSS  ·  Docker
+
+
+================================================================================
+  Q&A PREP — LIKELY QUESTIONS (2 minutes)
+================================================================================
+
+Q: Why Claude instead of a rules-based system or open-source model?
+A: The decision involves nuanced trade-offs — SLA risk vs cost savings vs
+   volume trends — that don't fit clean rules. Claude understands context:
+   "this area has high breach risk AND low 4PL pricing, what's the net call?"
+   Open-source models would need fine-tuning we don't have time for. Claude
+   gives production-quality reasoning out of the box.
+
+Q: How accurate is the recommendation?
+A: The recommendation quality directly follows the data quality. We use 90
+   days of real RedX SLA performance history + actual partner pricing. The
+   dispatch logic itself (use 4PL if margin delta > 0 AND risk < 60) is
+   deterministic — Claude is used for context-sensitive scoring, not the
+   final binary decision.
+
+Q: How long does it take?
+A: 15–30 seconds for a full dispatch recommendation (5 Claude calls).
+   10–20 seconds for partner optimization (3 Claude calls).
+   15 seconds for Hub Health across all 50 hubs (1 Claude call).
+
+Q: How does it handle a new 4PL partner?
+A: Add a row to sl_delivery_partners + sl_fourpl_partner_pricing (pricing
+   per zone). No code change needed. The partner evaluation agent picks
+   it up automatically in the next query.
+
+Q: How does it handle areas with no historical SLA data?
+A: The SLA risk agent returns an empty array, and the partner evaluation
+   agent falls back to cost-only ranking with a low confidence score.
+   The dispatch logic defaults to 3PL (safe fallback).
+
+Q: Can this run in production at RedX scale?
+A: The data layer is already production — we query the real stage DB.
+   For production dispatch, you'd add caching (Redis) for frequently
+   queried hub/area combos and a job queue for batching. The agent
+   architecture is stateless — horizontally scalable.
+
+Q: What's the most impressive technical challenge you solved?
+A: The Hub Health system. Naively sending all 50 hubs' area data to Claude
+   blew past the 30K token/minute rate limit with a 224K-token prompt.
+   We solved it by: (1) sending only hub-level summaries to Claude instead
+   of per-area rows, (2) pre-filtering to the 15 worst hubs, and (3)
+   generating area-level assignment suggestions programmatically in the
+   service layer. This reduced the prompt 98% while keeping the same output.
+
+================================================================================
