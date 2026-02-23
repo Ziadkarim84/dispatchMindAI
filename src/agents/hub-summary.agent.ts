@@ -374,13 +374,17 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
 
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
 
-  // Pre-filter: only send the worst hubs to Claude (max 15).
+  // Pre-filter: only send actionable hubs to Claude (max 15).
   // Hubs are already sorted by total_margin_3m ASC (worst first).
-  // Profitable hubs with no unassigned areas auto-get "keep".
+  // Profitable hubs with no actionable areas auto-get "keep".
+  // A hub is "actionable" if: losing money, has unassigned areas, or has 3PL areas
+  // that could potentially benefit from routing to a cheaper 4PL partner.
   const MAX_CLAUDE_HUBS = 15;
   const allProblemHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
-    return m.total_margin_3m < 0 || (bd && bd.unassigned > 0);
+    return m.total_margin_3m < 0
+      || (bd && bd.unassigned > 0)
+      || (bd && bd.thrpl > 0); // hubs with 3PL areas — may benefit from 4PL routing
   });
   const problemHubs = allProblemHubs.slice(0, MAX_CLAUDE_HUBS);
   const keepHubs = margins.filter(m => !problemHubs.some(p => p.hub_id === m.hub_id));

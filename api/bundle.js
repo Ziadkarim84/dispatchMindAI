@@ -1663,7 +1663,7 @@ async function runHubSummaryAgent() {
   const MAX_CLAUDE_HUBS = 15;
   const allProblemHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
-    return m.total_margin_3m < 0 || bd && bd.unassigned > 0;
+    return m.total_margin_3m < 0 || bd && bd.unassigned > 0 || bd && bd.thrpl > 0;
   });
   const problemHubs = allProblemHubs.slice(0, MAX_CLAUDE_HUBS);
   const keepHubs = margins.filter((m) => !problemHubs.some((p) => p.hub_id === m.hub_id));
