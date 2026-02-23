@@ -374,19 +374,32 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
 
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
 
-  // Pre-filter: only send actionable hubs to Claude (max 15).
-  // Hubs are already sorted by total_margin_3m ASC (worst first).
-  // Profitable hubs with no actionable areas auto-get "keep".
-  // A hub is "actionable" if: losing money, has unassigned areas, or has 3PL areas
-  // that could potentially benefit from routing to a cheaper 4PL partner.
-  const MAX_CLAUDE_HUBS = 15;
-  const allProblemHubs = margins.filter(m => {
+  // Pre-filter: send actionable hubs to Claude (max 20).
+  // Priority: losing-money hubs first (sorted ASC by margin), then hubs with 3PL areas
+  // that could benefit from switching to a 4PL partner.
+  // Profitable all-4PL hubs with no 3PL areas auto-get "keep".
+  const MAX_CLAUDE_HUBS = 20;
+
+  const losingHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
-    return m.total_margin_3m < 0
-      || (bd && bd.unassigned > 0)
-      || (bd && bd.thrpl > 0); // hubs with 3PL areas — may benefit from 4PL routing
+    return m.total_margin_3m < 0 || (bd && bd.unassigned > 0);
+  }); // already sorted worst-first
+
+  const thrplHubs = margins.filter(m => {
+    const bd = areaBreakdowns.get(m.hub_id);
+    return m.total_margin_3m >= 0
+      && !(bd && bd.unassigned > 0)
+      && (bd && bd.thrpl > 0); // profitable but has 3PL areas worth optimizing
+  }).sort((a, b) => {
+    // Prioritise hubs with more 3PL areas first
+    const aBd = areaBreakdowns.get(a.hub_id);
+    const bBd = areaBreakdowns.get(b.hub_id);
+    return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0);
   });
-  const problemHubs = allProblemHubs.slice(0, MAX_CLAUDE_HUBS);
+
+  // Fill up to MAX_CLAUDE_HUBS: losing hubs take priority, then top 3PL hubs
+  const combinedProblem = [...losingHubs, ...thrplHubs];
+  const problemHubs = combinedProblem.slice(0, MAX_CLAUDE_HUBS);
   const keepHubs = margins.filter(m => !problemHubs.some(p => p.hub_id === m.hub_id));
 
   logger.debug('[HubSummaryAgent] Hub split', {
