@@ -17,7 +17,9 @@
     "db:aggregate": "ts-node -r tsconfig-paths/register src/database/aggregate.ts",
     "db:seed-demo": "ts-node -r tsconfig-paths/register src/database/seed-demo.ts",
     "db:seed:partners": "ts-node -r tsconfig-paths/register src/database/seed-partner-deliveries.ts",
-    "db:diversify": "ts-node -r tsconfig-paths/register src/database/diversify-partner-data.ts"
+    "db:diversify": "ts-node -r tsconfig-paths/register src/database/diversify-partner-data.ts",
+    "db:fix-dual-partners": "ts-node -r tsconfig-paths/register src/database/fix-dual-partners.ts",
+    "db:redistribute": "ts-node -r tsconfig-paths/register src/database/redistribute-partners.ts"
   },
   "keywords": [
     "redx",
