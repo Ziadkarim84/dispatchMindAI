@@ -374,32 +374,31 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
 
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
 
-  // Pre-filter: send actionable hubs to Claude (max 20).
-  // Priority: losing-money hubs first (sorted ASC by margin), then hubs with 3PL areas
-  // that could benefit from switching to a 4PL partner.
-  // Profitable all-4PL hubs with no 3PL areas auto-get "keep".
-  const MAX_CLAUDE_HUBS = 20;
+  // Pre-filter: send up to 15 actionable hubs to Claude.
+  // Split: up to 9 losing/unassigned hubs (worst first) + up to 6 profitable hubs
+  // with 3PL areas (most thrpl areas first). This guarantees variety — losing hubs
+  // get shift_to_3pl (Pathao/Steadfast → Shopup Internal) and 3PL hubs get
+  // shift_to_4pl (Shopup Internal → Steadfast/Pathao).
+  const MAX_CLAUDE_HUBS    = 15;
+  const MAX_LOSING_SLOTS   = 9;
 
   const losingHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m < 0 || (bd && bd.unassigned > 0);
-  }); // already sorted worst-first
+  }).slice(0, MAX_LOSING_SLOTS); // already sorted worst-first
 
   const thrplHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m >= 0
       && !(bd && bd.unassigned > 0)
-      && (bd && bd.thrpl > 0); // profitable but has 3PL areas worth optimizing
+      && (bd && bd.thrpl > 0); // profitable hubs with 3PL areas worth switching to 4PL
   }).sort((a, b) => {
-    // Prioritise hubs with more 3PL areas first
     const aBd = areaBreakdowns.get(a.hub_id);
     const bBd = areaBreakdowns.get(b.hub_id);
-    return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0);
-  });
+    return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0); // most 3PL areas first
+  }).slice(0, MAX_CLAUDE_HUBS - losingHubs.length);
 
-  // Fill up to MAX_CLAUDE_HUBS: losing hubs take priority, then top 3PL hubs
-  const combinedProblem = [...losingHubs, ...thrplHubs];
-  const problemHubs = combinedProblem.slice(0, MAX_CLAUDE_HUBS);
+  const problemHubs = [...losingHubs, ...thrplHubs];
   const keepHubs = margins.filter(m => !problemHubs.some(p => p.hub_id === m.hub_id));
 
   logger.debug('[HubSummaryAgent] Hub split', {

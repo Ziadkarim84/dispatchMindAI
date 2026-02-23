@@ -1660,11 +1660,12 @@ async function runHubSummaryAgent() {
     };
   }
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
-  const MAX_CLAUDE_HUBS = 20;
+  const MAX_CLAUDE_HUBS = 15;
+  const MAX_LOSING_SLOTS = 9;
   const losingHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m < 0 || bd && bd.unassigned > 0;
-  });
+  }).slice(0, MAX_LOSING_SLOTS);
   const thrplHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m >= 0 && !(bd && bd.unassigned > 0) && (bd && bd.thrpl > 0);
@@ -1672,9 +1673,8 @@ async function runHubSummaryAgent() {
     const aBd = areaBreakdowns.get(a.hub_id);
     const bBd = areaBreakdowns.get(b.hub_id);
     return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0);
-  });
-  const combinedProblem = [...losingHubs, ...thrplHubs];
-  const problemHubs = combinedProblem.slice(0, MAX_CLAUDE_HUBS);
+  }).slice(0, MAX_CLAUDE_HUBS - losingHubs.length);
+  const problemHubs = [...losingHubs, ...thrplHubs];
   const keepHubs = margins.filter((m) => !problemHubs.some((p) => p.hub_id === m.hub_id));
   logger.debug("[HubSummaryAgent] Hub split", {
     problemHubs: problemHubs.length,
