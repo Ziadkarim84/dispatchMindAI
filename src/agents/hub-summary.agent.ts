@@ -374,32 +374,35 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
 
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
 
-  // Pre-filter: send up to 15 actionable hubs to Claude.
-  // Split: up to 9 losing/unassigned hubs (worst first) + up to 6 profitable hubs
-  // with 3PL areas (most thrpl areas first). This guarantees variety — losing hubs
-  // get shift_to_3pl (Pathao/Steadfast → Shopup Internal) and 3PL hubs get
-  // shift_to_4pl (Shopup Internal → Steadfast/Pathao).
-  const MAX_CLAUDE_HUBS    = 15;
-  const MAX_LOSING_SLOTS   = 9;
+  // Pre-filter: send up to 15 losing/unassigned hubs to Claude.
+  // Profitable hubs with 3PL areas get auto-assigned "shift_to_4pl" without Claude
+  // (Claude would just say "keep" for them since they're profitable).
+  const MAX_CLAUDE_HUBS  = 15;
+  const AUTO_3PL_HUBS    = 6;  // top hubs with most 3PL areas — auto shift_to_4pl
 
   const losingHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m < 0 || (bd && bd.unassigned > 0);
-  }).slice(0, MAX_LOSING_SLOTS); // already sorted worst-first
+  }); // already sorted worst-first
 
-  const thrplHubs = margins.filter(m => {
+  // Profitable hubs with 3PL areas — programmatically auto-assigned shift_to_4pl
+  const auto3plShiftHubs = margins.filter(m => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m >= 0
       && !(bd && bd.unassigned > 0)
-      && (bd && bd.thrpl > 0); // profitable hubs with 3PL areas worth switching to 4PL
+      && (bd && bd.thrpl > 0)
+      && !losingHubs.some(l => l.hub_id === m.hub_id);
   }).sort((a, b) => {
     const aBd = areaBreakdowns.get(a.hub_id);
     const bBd = areaBreakdowns.get(b.hub_id);
     return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0); // most 3PL areas first
-  }).slice(0, MAX_CLAUDE_HUBS - losingHubs.length);
+  }).slice(0, AUTO_3PL_HUBS);
 
-  const problemHubs = [...losingHubs, ...thrplHubs];
-  const keepHubs = margins.filter(m => !problemHubs.some(p => p.hub_id === m.hub_id));
+  const problemHubs = losingHubs.slice(0, MAX_CLAUDE_HUBS);
+  const keepHubs = margins.filter(m =>
+    !problemHubs.some(p => p.hub_id === m.hub_id) &&
+    !auto3plShiftHubs.some(a => a.hub_id === m.hub_id)
+  );
 
   logger.debug('[HubSummaryAgent] Hub split', {
     problemHubs: problemHubs.length,
@@ -431,6 +434,32 @@ Available 4PL partners and zone pricing:
 ${JSON.stringify(partners, null, 2)}
 
 Analyze each hub and return your recommendations.`;
+
+  // Auto shift_to_4pl for profitable hubs with 3PL areas — no Claude needed
+  // Claude would just say "keep" since they're profitable; we programmatically
+  // generate the shift_to_4pl recommendation + suggestions instead.
+  const auto3plShiftItems: HubSummaryItem[] = auto3plShiftHubs.map(m => {
+    const bd = areaBreakdowns.get(m.hub_id)!;
+    const thrplCount = bd?.thrpl ?? 0;
+    return {
+      hub_id: m.hub_id,
+      hub_name: m.hub_name,
+      recommendation: 'shift_to_4pl' as const,
+      priority: 'medium' as const,
+      recommended_action: `Hub has ${thrplCount} area${thrplCount !== 1 ? 's' : ''} using Shopup Internal (3PL). Routing these to external 4PL partners can reduce in-house delivery load and lower per-parcel cost.`,
+      estimated_margin_improvement_90d: 0,
+      suggested_assignments: buildSuggestedAssignments('shift_to_4pl', bd, partners),
+      total_areas: bd?.total ?? 0,
+      fourpl_areas: bd?.fourpl ?? 0,
+      thrpl_areas: thrplCount,
+      unassigned_areas: bd?.unassigned ?? 0,
+      avg_monthly_margin: Math.round(m.total_margin_3m / 3),
+      projected_margin_90d: m.total_margin_3m,
+      avg_margin_per_parcel: m.avg_margin_per_parcel,
+      total_parcels_3m: m.total_parcels_3m,
+      is_losing_money: false,
+    };
+  });
 
   // Auto-keep hubs — no Claude call needed for these
   const autoKeepItems: HubSummaryItem[] = keepHubs.map(m => {
@@ -527,9 +556,9 @@ Analyze each hub and return your recommendations.`;
     };
   });
 
-  // Merge: problem hubs (from Claude) + auto-keep hubs, sorted by priority
+  // Merge: Claude hubs + auto-3PL-shift hubs + auto-keep hubs, sorted by priority
   const priorityOrder = { high: 0, medium: 1, low: 2 };
-  const hubs: HubSummaryItem[] = [...claudeHubs, ...autoKeepItems]
+  const hubs: HubSummaryItem[] = [...claudeHubs, ...auto3plShiftItems, ...autoKeepItems]
     .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
   const losing_hubs = hubs.filter(h => h.is_losing_money).length;

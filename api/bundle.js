@@ -1661,21 +1661,23 @@ async function runHubSummaryAgent() {
   }
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
   const MAX_CLAUDE_HUBS = 15;
-  const MAX_LOSING_SLOTS = 9;
+  const AUTO_3PL_HUBS = 6;
   const losingHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
     return m.total_margin_3m < 0 || bd && bd.unassigned > 0;
-  }).slice(0, MAX_LOSING_SLOTS);
-  const thrplHubs = margins.filter((m) => {
+  });
+  const auto3plShiftHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
-    return m.total_margin_3m >= 0 && !(bd && bd.unassigned > 0) && (bd && bd.thrpl > 0);
+    return m.total_margin_3m >= 0 && !(bd && bd.unassigned > 0) && (bd && bd.thrpl > 0) && !losingHubs.some((l) => l.hub_id === m.hub_id);
   }).sort((a, b) => {
     const aBd = areaBreakdowns.get(a.hub_id);
     const bBd = areaBreakdowns.get(b.hub_id);
     return (bBd?.thrpl ?? 0) - (aBd?.thrpl ?? 0);
-  }).slice(0, MAX_CLAUDE_HUBS - losingHubs.length);
-  const problemHubs = [...losingHubs, ...thrplHubs];
-  const keepHubs = margins.filter((m) => !problemHubs.some((p) => p.hub_id === m.hub_id));
+  }).slice(0, AUTO_3PL_HUBS);
+  const problemHubs = losingHubs.slice(0, MAX_CLAUDE_HUBS);
+  const keepHubs = margins.filter(
+    (m) => !problemHubs.some((p) => p.hub_id === m.hub_id) && !auto3plShiftHubs.some((a) => a.hub_id === m.hub_id)
+  );
   logger.debug("[HubSummaryAgent] Hub split", {
     problemHubs: problemHubs.length,
     autoKeep: keepHubs.length
@@ -1701,6 +1703,28 @@ Available 4PL partners and zone pricing:
 ${JSON.stringify(partners, null, 2)}
 
 Analyze each hub and return your recommendations.`;
+  const auto3plShiftItems = auto3plShiftHubs.map((m) => {
+    const bd = areaBreakdowns.get(m.hub_id);
+    const thrplCount = bd?.thrpl ?? 0;
+    return {
+      hub_id: m.hub_id,
+      hub_name: m.hub_name,
+      recommendation: "shift_to_4pl",
+      priority: "medium",
+      recommended_action: `Hub has ${thrplCount} area${thrplCount !== 1 ? "s" : ""} using Shopup Internal (3PL). Routing these to external 4PL partners can reduce in-house delivery load and lower per-parcel cost.`,
+      estimated_margin_improvement_90d: 0,
+      suggested_assignments: buildSuggestedAssignments("shift_to_4pl", bd, partners),
+      total_areas: bd?.total ?? 0,
+      fourpl_areas: bd?.fourpl ?? 0,
+      thrpl_areas: thrplCount,
+      unassigned_areas: bd?.unassigned ?? 0,
+      avg_monthly_margin: Math.round(m.total_margin_3m / 3),
+      projected_margin_90d: m.total_margin_3m,
+      avg_margin_per_parcel: m.avg_margin_per_parcel,
+      total_parcels_3m: m.total_parcels_3m,
+      is_losing_money: false
+    };
+  });
   const autoKeepItems = keepHubs.map((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
     const hasUnassigned = bd && bd.unassigned > 0;
@@ -1779,7 +1803,7 @@ Analyze each hub and return your recommendations.`;
     };
   });
   const priorityOrder = { high: 0, medium: 1, low: 2 };
-  const hubs = [...claudeHubs, ...autoKeepItems].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+  const hubs = [...claudeHubs, ...auto3plShiftItems, ...autoKeepItems].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
   const losing_hubs = hubs.filter((h) => h.is_losing_money).length;
   return {
     data: {
