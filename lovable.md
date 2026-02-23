@@ -768,3 +768,29 @@ The dispatch_reason field is already in the API response — just read it from t
 Also update the DispatchResult type in src/lib/api.ts to add:
   dispatch_reason: string;
 ```
+
+---
+
+### Change 4 — Remove hub selection, set default values for parcel fields
+
+```
+In the AI Dispatch Recommender form (/dispatch), make these two changes:
+
+1. Remove the Hub field entirely.
+   - Delete the Hub combobox/dropdown and its label from the form.
+   - Remove the GET /api/v1/hubs fetch call that was used only for this dropdown.
+   - Remove the hub_id from the dispatchRecommend() call in src/lib/api.ts — the
+     backend already derives the hub automatically from the area_id.
+   - Remove the small info note "Hub is auto-detected; you can override it manually."
+     from the info box beneath the form (or reword it to just say
+     "Hub is auto-detected from the selected area.").
+
+2. Set default values for the numeric fields:
+   - Parcel Value (BDT): default value = 1500 (pre-fill the input with 1500)
+   - Weight (kg): default value = 1 (pre-fill the input with 1)
+   - SLA Days remains at its existing default of 3 — no change.
+
+The form should now have three fields: Area (required), Parcel Value (default 1500),
+Weight (default 1). The submit button should be enabled as soon as an area is selected
+(parcel value and weight already have defaults so the form is effectively pre-filled).
+```
