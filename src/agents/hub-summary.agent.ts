@@ -377,7 +377,7 @@ export async function runHubSummaryAgent(): Promise<AgentResult<HubSummaryResult
   // Pre-filter: send up to 15 losing/unassigned hubs to Claude.
   // Profitable hubs with 3PL areas get auto-assigned "shift_to_4pl" without Claude
   // (Claude would just say "keep" for them since they're profitable).
-  const MAX_CLAUDE_HUBS  = 15;
+  const MAX_CLAUDE_HUBS  = 8;
   const AUTO_3PL_HUBS    = 6;  // top hubs with most 3PL areas — auto shift_to_4pl
 
   const losingHubs = margins.filter(m => {

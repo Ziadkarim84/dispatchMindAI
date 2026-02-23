@@ -1660,7 +1660,7 @@ async function runHubSummaryAgent() {
     };
   }
   const areaBreakdowns = buildAreaBreakdowns(areaRows);
-  const MAX_CLAUDE_HUBS = 15;
+  const MAX_CLAUDE_HUBS = 8;
   const AUTO_3PL_HUBS = 6;
   const losingHubs = margins.filter((m) => {
     const bd = areaBreakdowns.get(m.hub_id);
